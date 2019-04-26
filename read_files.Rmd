@@ -8,32 +8,82 @@ Setup:
 library(tidyverse)
 library(skimr)
 library(vroom)
+library(lubridate)
 ```
 
 Testing:
 
 ```{r}
-data_path <- '../Wharton #2 (Fundation)/data/'
+data_path <- '../wharton/processed_data/'
 
-days_d <- paste0(data_path, 'daily_vitals.csv') %>% read_csv()
-visit_hospital_d <- paste0(data_path, 'visit_hospital.csv') %>% read_csv()
-skim(visit_hospital_d)
-unique(visit_hospital_d$hospital)
+# days_d <- paste0(data_path, 'daily_vitals.csv') %>% read_csv()
+# visit_hospital_d <- paste0(data_path, 'visit_hospital.csv') %>% read_csv()
+# skim(visit_hospital_d)
+# unique(visit_hospital_d$hospital)
 
 
 
-k_d <- paste0(data_path, 'potassium_data.csv') %>% 
+k_d <- paste0(data_path, 'k_d.csv') %>% 
   vroom()
 skim(k_d)
 # k_d[is.na(k_d)] <- 0
 
-k_d <- k_d %>%
-  merge(visit_hospital_d, by = 'visit_num')
-k_d[2873:2875, 'gfr_aa']
-summary(k_d$gfr_aa)
-summary(k_d$gfr_nonaa)
-
-skimr::skim(k_d)
+# skimr::skim(k_d)
+colnames(k_d)
+table(k_d$medication_name)
+table(k_d$hospital)
+table(k_d$provider_name)
 colnames(k_d)
 ```
+
+Set thresholds:
+```{r}
+rep_count_threshold <- 20
+```
+
+
+
+
+Reproduce some plots:
+
+
+### At what point do providers replete electrolytes?
+Cell 15:
+
+```{r}
+k_d %>% group_by(provider_name) %>%
+  add_tally(pre_repletion_val) %>%
+  filter(n > rep_count_threshold) %>%
+  summarise(mean_pre_rep_val = mean(pre_repletion_val)) %>%
+  ggplot(aes(x = mean_pre_rep_val)) +
+  geom_histogram(binwidth = 0.1)
+
+# mydat <- k_d %>% group_by(provider_name) %>%
+#   summarise(mean_pre_rep_val = mean(pre_repletion_val))
+# hist(mydat$mean_pre_rep_val)
+# ggplot(mydat, aes(x = mean_pre_rep_val)) +
+#   geom_histogram(binwidth = 0.5)
+```
+
+Cell 17:
+
+```{r}
+boxplot(k_d$result_to_order_seconds)
+ymd_hms(k_d$performed_date) - ymd(k_d$result_to_order_seconds)
+```
+
+
+```{r}
+ymd_hms(k_d$performed_date) %>% hour()
+```
+
+### What are the pre- and post-repletion electrolyte lab values?
+```{r}
+k_d %>%
+  select(pre_repletion_val, post_repletion_val) %>%
+  gather('prepost', 'value') %>%
+  ggplot(aes(x = value, fill = prepost)) +
+  geom_histogram(alpha = 0.7, position = 'identity', binwidth = 0.1)
+```
+
 
