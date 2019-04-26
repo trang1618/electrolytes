@@ -1,0 +1,39 @@
+---
+title: "Reading Files"
+output: html_document
+---
+Setup:
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(vroom)
+```
+
+Testing:
+
+```{r}
+data_path <- '../Wharton #2 (Fundation)/data/'
+
+days_d <- paste0(data_path, 'daily_vitals.csv') %>% read_csv()
+visit_hospital_d <- paste0(data_path, 'visit_hospital.csv') %>% read_csv()
+skim(visit_hospital_d)
+unique(visit_hospital_d$hospital)
+
+
+
+k_d <- paste0(data_path, 'potassium_data.csv') %>% 
+  vroom()
+skim(k_d)
+# k_d[is.na(k_d)] <- 0
+
+k_d <- k_d %>%
+  merge(visit_hospital_d, by = 'visit_num')
+k_d[2873:2875, 'gfr_aa']
+summary(k_d$gfr_aa)
+summary(k_d$gfr_nonaa)
+
+skimr::skim(k_d)
+colnames(k_d)
+```
+
