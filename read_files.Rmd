@@ -146,6 +146,11 @@ Focus on depletion of > 4.5
 ```{r}
 k_d %>% 
   filter(pre_repletion_val > 4.5) %>%
+  nrow()
+#2303
+
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
   count(provider_name) %>%
   nrow()
 # 669
