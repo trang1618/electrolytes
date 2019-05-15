@@ -87,3 +87,87 @@ k_d %>%
 ```
 
 
+```{r}
+delta_repletion <- k_d %>%
+  transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
+  pull()
+sum(delta_repletion < 0)/length(delta_repletion) 
+# t.test(alternative = 'greater')
+```
+
+
+
+
+
+
+
+
+```{r}
+lm(order_to_repletion_seconds ~ pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+```
+
+```{r}
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+
+lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+
+cor(k_d$performed_dose, k_d$delta_val)
+
+```
+
+```{r}
+# extend k_d dataset
+k_d_ext <- k_d %>%
+  transmute(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
+         t_repletion_orderlab_overlap = post_repletion_val_order_date_offset_seconds - performed_date_offset_seconds,
+         t_repletion_resultlab_overlap = post_repletion_val_date_offset_seconds - performed_date_offset_seconds,
+         weekend = performed_day_of_week >= 5)
+
+ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
+  geom_histogram(bins = 300, stat = 'density', 
+                 position = 'identity', alpha = 0.8) +
+  scale_x_continuous(limits = c(-20000/60, 86400/60))
+  labs(x = 'Time since initial lab resulted, in minutes',
+       y = 'Proportion of occurrences')
+```
+
+
+Focus on depletion of > 4.5
+
+```{r}
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
+  count(provider_name) %>%
+  nrow()
+# 669
+k_d %>% 
+  count(provider_name) %>%
+  nrow()
+# 2040
+
+669/2040
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
