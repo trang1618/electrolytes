@@ -25,6 +25,10 @@ data_path <- '../wharton/processed_data/'
 
 k_d <- paste0(data_path, 'k_d.csv') %>% 
   vroom()
+
+mg_d <- paste0(data_path, 'mg_d.csv') %>% 
+  vroom()
+
 skim(k_d)
 # k_d[is.na(k_d)] <- 0
 
@@ -34,6 +38,7 @@ table(k_d$medication_name)
 table(k_d$hospital)
 table(k_d$provider_name)
 colnames(k_d)
+unique(k_d$medication_name)
 ```
 
 Set thresholds:
@@ -56,7 +61,9 @@ k_d %>% group_by(provider_name) %>%
   filter(n > rep_count_threshold) %>%
   summarise(mean_pre_rep_val = mean(pre_repletion_val)) %>%
   ggplot(aes(x = mean_pre_rep_val)) +
-  geom_histogram(binwidth = 0.1)
+  geom_histogram(binwidth = 0.1) + 
+  labs(y = 'Number of providers')
+
 
 # mydat <- k_d %>% group_by(provider_name) %>%
 #   summarise(mean_pre_rep_val = mean(pre_repletion_val))
@@ -77,13 +84,186 @@ ymd_hms(k_d$performed_date) - ymd(k_d$result_to_order_seconds)
 ymd_hms(k_d$performed_date) %>% hour()
 ```
 
+
+Cell 21:
+
+```{r}
+days <- c('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+k_d %>%
+  group_by(performed_day_of_week) %>%
+  summarise(mean_pre_val = mean(pre_repletion_val)) %>%
+  ggplot(aes(x = performed_day_of_week,
+             y = mean_pre_val)) +
+  geom_point() +
+  scale_y_continuous(limits = c(0, 3.7))
+```
+
+
 ### What are the pre- and post-repletion electrolyte lab values?
 ```{r}
 k_d %>%
-  select(pre_repletion_val, post_repletion_val) %>%
+  dplyr::select(pre_repletion_val, post_repletion_val) %>%
   gather('prepost', 'value') %>%
   ggplot(aes(x = value, fill = prepost)) +
   geom_histogram(alpha = 0.7, position = 'identity', binwidth = 0.1)
 ```
+
+
+```{r}
+delta_repletion <- k_d %>%
+  transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
+  pull()
+# delta_repletion <- mg_d %>%
+#   transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
+#   pull()
+sum(delta_repletion < 0)/length(delta_repletion) 
+# t.test(alternative = 'greater')
+
+# last 6 hours dialysis, +/- 12 hours
+# why?
+# same patient: K drop, K increase?
+# heart rate: heart beat high
+# drug datasets
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+lm(order_to_repletion_seconds ~ pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+```
+
+```{r}
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+
+lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+
+cor(k_d$performed_dose, k_d$delta_val)
+
+```
+
+```{r}
+# extend k_d dataset
+k_d_ext <- k_d %>%
+  mutate(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
+         t_repletion_orderlab_overlap = post_repletion_val_order_date_offset_seconds - performed_date_offset_seconds,
+         t_repletion_resultlab_overlap = post_repletion_val_date_offset_seconds - performed_date_offset_seconds,
+         weekend = performed_day_of_week >= 5)
+
+ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
+  geom_histogram(bins = 300, stat = 'density', 
+                 position = 'identity', alpha = 0.8) +
+  scale_x_continuous(limits = c(-20000/60, 86400/60))
+  labs(x = 'Time since initial lab resulted, in minutes',
+       y = 'Proportion of occurrences')
+```
+
+
+Focus on depletion of > 4.5
+
+```{r}
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
+  nrow()
+#2303
+
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
+  count(provider_name) %>%
+  # filter(n >= 10) %>%
+  nrow()
+# Providers that perform improper repletion: 669
+
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
+  count(provider_name) %>%
+  filter(n >= 10) %>%
+  nrow()
+
+# Are these providers over prescribe for Mg, function in the system?
+# overprotective? defensive? systematic error?
+# why K drop?
+
+k_d %>% 
+  filter(pre_repletion_val > 4.5) %>%
+  dplyr::select(provider_name, hospital) %>%
+  count(hospital)
+
+k_d %>% 
+  # filter(pre_repletion_val > 4.5) %>%
+  dplyr::select(provider_name, hospital) %>%
+  count(hospital)
+
+
+# some providers change hospitals
+
+  # filter(n >= 10) %>%
+
+
+k_d %>% 
+  count(provider_name) %>%
+  nrow()
+# Total number of providers: 2040
+
+669/2040
+```
+
+
+
+```{r}
+dat_high_pre <- k_d_ext %>% 
+  filter(pre_repletion_val > 4.5)
+
+dat_high_pre %>%
+  nrow()
+#2303
+
+ggplot(aes(x = t_order/60, fill = weekend), data = dat_high_pre) +
+  geom_histogram(bins = 300, stat = 'density', 
+                 position = 'identity', alpha = 0.8) +
+  scale_x_continuous(limits = c(-20000/60, 86400/60))
+  labs(x = 'Time since initial lab resulted, in minutes',
+       y = 'Proportion of occurrences')
+
+# of the 2303 improper repletions, how many are before lab results come
+dat_high_pre %>%
+  filter(t_order < 0) %>%
+  filter(t_order > -20000) %>%
+  nrow()
+#181
+
+k_d_ext %>%
+  filter(t_order < 0) %>%
+  filter(t_order > -20000) %>%
+  nrow()
+#5947
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
