@@ -23,10 +23,10 @@ data_path <- '../wharton/processed_data/'
 
 
 
-k_d <- paste0(data_path, 'k_d.csv') %>% 
+k_d <- paste0(data_path, 'k_d.csv') %>%
   vroom()
 
-mg_d <- paste0(data_path, 'mg_d.csv') %>% 
+mg_d <- paste0(data_path, 'mg_d.csv') %>%
   vroom()
 
 skim(k_d)
@@ -61,7 +61,7 @@ k_d %>% group_by(provider_name) %>%
   filter(n > rep_count_threshold) %>%
   summarise(mean_pre_rep_val = mean(pre_repletion_val)) %>%
   ggplot(aes(x = mean_pre_rep_val)) +
-  geom_histogram(binwidth = 0.1) + 
+  geom_histogram(binwidth = 0.1) +
   labs(y = 'Number of providers')
 
 
@@ -116,7 +116,7 @@ delta_repletion <- k_d %>%
 # delta_repletion <- mg_d %>%
 #   transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
 #   pull()
-sum(delta_repletion < 0)/length(delta_repletion) 
+sum(delta_repletion < 0)/length(delta_repletion)
 # t.test(alternative = 'greater')
 
 # last 6 hours dialysis, +/- 12 hours
@@ -157,7 +157,7 @@ cor(k_d$performed_dose, k_d$delta_val)
 ```{r}
 # extend k_d dataset
 k_d_ext <- k_d %>%
-  mutate(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+  transmute(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
          t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
          t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
          t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
@@ -166,7 +166,7 @@ k_d_ext <- k_d %>%
          weekend = performed_day_of_week >= 5)
 
 ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
-  geom_histogram(bins = 300, stat = 'density', 
+  geom_histogram(bins = 300, stat = 'density',
                  position = 'identity', alpha = 0.8) +
   scale_x_continuous(limits = c(-20000/60, 86400/60))
   labs(x = 'Time since initial lab resulted, in minutes',
@@ -177,19 +177,19 @@ ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
 Focus on depletion of > 4.5
 
 ```{r}
-k_d %>% 
+k_d %>%
   filter(pre_repletion_val > 4.5) %>%
   nrow()
 #2303
 
-k_d %>% 
+k_d %>%
   filter(pre_repletion_val > 4.5) %>%
   count(provider_name) %>%
   # filter(n >= 10) %>%
   nrow()
 # Providers that perform improper repletion: 669
 
-k_d %>% 
+k_d %>%
   filter(pre_repletion_val > 4.5) %>%
   count(provider_name) %>%
   filter(n >= 10) %>%
@@ -199,12 +199,12 @@ k_d %>%
 # overprotective? defensive? systematic error?
 # why K drop?
 
-k_d %>% 
+k_d %>%
   filter(pre_repletion_val > 4.5) %>%
   dplyr::select(provider_name, hospital) %>%
   count(hospital)
 
-k_d %>% 
+k_d %>%
   # filter(pre_repletion_val > 4.5) %>%
   dplyr::select(provider_name, hospital) %>%
   count(hospital)
@@ -215,7 +215,7 @@ k_d %>%
   # filter(n >= 10) %>%
 
 
-k_d %>% 
+k_d %>%
   count(provider_name) %>%
   nrow()
 # Total number of providers: 2040
@@ -226,7 +226,7 @@ k_d %>%
 
 
 ```{r}
-dat_high_pre <- k_d_ext %>% 
+dat_high_pre <- k_d_ext %>%
   filter(pre_repletion_val > 4.5)
 
 dat_high_pre %>%
@@ -234,7 +234,7 @@ dat_high_pre %>%
 #2303
 
 ggplot(aes(x = t_order/60, fill = weekend), data = dat_high_pre) +
-  geom_histogram(bins = 300, stat = 'density', 
+  geom_histogram(bins = 300, stat = 'density',
                  position = 'identity', alpha = 0.8) +
   scale_x_continuous(limits = c(-20000/60, 86400/60))
   labs(x = 'Time since initial lab resulted, in minutes',
@@ -253,17 +253,3 @@ k_d_ext %>%
   nrow()
 #5947
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
