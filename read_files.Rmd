@@ -24,10 +24,10 @@ data_path <- '../wharton/processed_data/'
 
 
 k_d <- paste0(data_path, 'k_d.csv') %>%
-  vroom()
+  data.table::fread()
 
-mg_d <- paste0(data_path, 'mg_d.csv') %>%
-  vroom()
+# mg_d <- paste0(data_path, 'mg_d.csv') %>%
+#   data.table::fread()
 
 skim(k_d)
 # k_d[is.na(k_d)] <- 0
@@ -120,6 +120,7 @@ sum(delta_repletion < 0)/length(delta_repletion)
 # t.test(alternative = 'greater')
 
 # last 6 hours dialysis, +/- 12 hours
+# excluded dialysis
 # why?
 # same patient: K drop, K increase?
 # heart rate: heart beat high
@@ -195,7 +196,8 @@ k_d %>%
   filter(n >= 10) %>%
   nrow()
 
-# Are these providers over prescribe for Mg, function in the system?
+# Are these providers over prescribe for Mg? Yes.
+# function in the system?
 # overprotective? defensive? systematic error?
 # why K drop?
 
@@ -253,3 +255,68 @@ k_d_ext %>%
   nrow()
 #5947
 ```
+
+
+Drugs to consider:
+- Furosemide
+- Lasix
+- Spironolactone
+- Diamox
+- HCTZ
+- Hydrochlorothiazide
+- bumex
+
+```{r}
+# meds_d <- data.table::fread('../../Penn_ICU_Data/ICU PTS COHORT MEDS.csv')
+# save(meds_d, file = '../wharton/data/medications.Rdata')
+
+# load('../wharton/data/medications.Rdata')
+colnames(meds_d)
+head(meds_d)
+table(meds_d$MEDICATION_NAME[1:1000])
+```
+
+```{r}
+# slice_drugs <- function(drug_name){
+#   meds_d %>%
+#     filter(grepl(drug_name, MEDICATION_NAME, ignore.case = T))
+# }
+# diamox <- slice_drugs("diamox|acetazolamide")
+# bumex <- slice_drugs("bumex|bumetanide")
+# hctz <- slice_drugs("microzide|hydrochlorothiazide|HCTZ")
+# spironolactone <- slice_drugs("spironolactone|caroSpir|aldactone")
+# lasix <- slice_drugs("lasix|furosemide")
+# save(diamox, bumex, hctz, spironolactone, lasix,
+#      file = '../wharton/data/blood_pressure_meds.Rdata')
+# 
+load('../wharton/data/blood_pressure_meds.Rdata')
+```
+
+```{r}
+head(diamox)
+diamox <- diamox %>%
+  mutate(diamox_date = mdy_hms(PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p', quiet = TRUE))
+head(k_d)
+```
+
+08/01/2014 05.32.00 PM
+```{r}
+head(diamox$PERFORMED_DATE)
+head(as.Date(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p'))
+library(lubridate)
+date_test <- mdy_hms(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p')
+length(diamox$PERFORMED_DATE)
+length(date_test)
+tail(date_test)
+tail(diamox$PERFORMED_DATE)
+diamox$PERFORMED_DATE[which(is.na(date_test))]
+dhours(date_test[1] - date_test[2])
+
+date_test[1] %within% 
+  interval(date_test[1] - hours(12), date_test[1] + hours(12))
+```
+
+
+
+
+
