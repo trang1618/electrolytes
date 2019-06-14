@@ -6,7 +6,6 @@ Setup:
 
 ```{r}
 library(tidyverse)
-library(skimr)
 library(vroom)
 library(lubridate)
 ```
@@ -16,32 +15,39 @@ Testing:
 ```{r}
 data_path <- '../wharton/processed_data/'
 ori_data_path <- '../wharton/data/'
-# days_d <- paste0(data_path, 'daily_vitals.csv') %>% read_csv()
 # visit_hospital_d <- paste0(data_path, 'visit_hospital.csv') %>% read_csv()
-# skim(visit_hospital_d)
 # unique(visit_hospital_d$hospital)
 
+read_d <- function(lyte) paste0(data_path, lyte, '_d.csv') %>% data.table::fread()
+read_ori <- function(var){
+  dat <- paste0(ori_data_path, var, '.csv') %>%
+    data.table::fread(colClasses = c(visit_num = 'integer64')) %>%
+    distinct()
+  
+  # fix issues with duplicates in the daily_labs tables
+  if (grepl('_daily_labs', var)){
+    lyte <- gsub('_daily_labs', '', var)
+    cols <- paste(c('min', 'max'), lyte, 'val', sep = '_')
+    dat <- dat %>%
+      group_by(visit_num, day_in_unit) %>%
+      summarise(!!(cols[1]) := min(!!(sym(cols[1]))),
+                !!(cols[2]) := max(!!(sym(cols[2]))))
+  }
+  
+  if ('day_in_unit' %in% colnames(dat)){
+    dat <- dat %>%
+      mutate(day_in_unit = 
+               gsub(' 00:00:00', '', day_in_unit))
+  }
+  
+  dat
+}
 
+d <- read_d('k')
+mg_d <- read_d('mg')
+ca_d <- read_d('ca')
+phos_d <- read_d('phos')
 
-k_d <- paste0(data_path, 'k_d.csv') %>%
-  data.table::fread()
-
-
-
-
-mg_d <- paste0(data_path, 'mg_d.csv') %>%
-  data.table::fread()
-
-ca_d <- paste0(data_path, 'ca_d.csv') %>%
-  data.table::fread()
-
-phos_d <- paste0(data_path, 'phos_d.csv') %>%
-  data.table::fread()
-
-skim(k_d)
-# k_d[is.na(k_d)] <- 0
-
-# skimr::skim(k_d)
 colnames(k_d)
 table(k_d$medication_name)
 table(k_d$hospital)
@@ -50,60 +56,48 @@ colnames(k_d)
 unique(k_d$medication_name)
 ```
 
+Calculate GFR by MDRD calculation
+female_coeff = 0.742 if is_female==1 else 1
+aa_coeff = 1.212 if_aa==1 else 1
+(assuming no African-American patients - data not available)
+GFR = 175 * Cr^-1.154 * age^-0.203 * female_fac
 
 ```{r}
-k_d_all <- paste0('../wharton/data/potassium_data.csv') %>%
-  data.table::fread(colClasses = c(visit_num = 'integer64'))
+daily_dat <- c('daily_vitals', 'given_fluid_bolus', 'given_beta_blocker', 'given_diltiazem', 'given_amiodarone', 'creatinine', 'is_ventilated', 'potassium_daily_labs', 'magnesium_daily_labs', 'calcium_daily_labs', 'phosphate_daily_labs')
 
-group_ids <- c('visit_num', 
-               'pre_repletion_val_date_offset_seconds',
-               'post_repletion_val_date_offset_seconds')
-# size <- k_d_all %>%
-#   group_by(visit_num, 
-#            pre_repletion_val_date_offset_seconds,
-#            post_repletion_val_date_offset_seconds) %>%
-#   mutate(my_size = n(), is_ivpo = n_unique())
-
-k_d_all <- k_d_all %>%
-  mutate(delta_val = post_repletion_val - pre_repletion_val) %>%
-  group_by(visit_num, 
-           pre_repletion_val_date_offset_seconds,
-           post_repletion_val_date_offset_seconds) %>%
-  add_tally() %>%
-  mutate(is_ivpo = as.integer(n_unique(is_iv) > 1))
-  
+system.time(
+ vitals_d <- lapply(daily_dat, read_ori) %>%
+  reduce(left_join, by = c('visit_num', 'day_in_unit')) %>%
+  list() %>%
+  c(lapply(c('age_gender', 'weights', 'visit_hospital'), read_ori)) %>%
+  reduce(left_join, by = 'visit_num') %>%
+  mutate(gfr_mdrd = 175 *
+           creatinine^(-1.154) *
+           age^(-0.203) *
+           ifelse(is_female, 0.742, 1)) 
+)
 
 
-colnames(k_d_all)
+gfr_info <- vitals_d %>%
+  filter(gfr_mdrd > 0 & gfr_mdrd < 30) %>%
+  select(visit_num) %>%
+  mutate(gfr_mdrd_below_30 = 1)
 
-k_d %>%
-  mutate(performed_dose = performed_dose * ifelse(
-    (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
-    4.4/3.0,
-    1)
-  )
 
-# summary(k_d_all$is_iv)
-# table(k_d_ext$is_ivpo)
-# hist(k_d_ext$n)
+```
+
+
+```{r}
+k_d_all <- read_ori('potassium_data')
+hospital_d <- read_ori('visit_hospital')
+
 ```
 
 ```{r}
-# There are 4.4 mEq of potassium per 3 mmol of phosphate in potassium phosphate.
-# Only apply this function to the potassium dataframe!
-
-
-# table(k_d_all$performed_unit_of_measure)
-
-
-# 
-# is_aki = visits('aki-codes')
-# head(is_aki)
 visits <- function(codename){# dat_name and col_name
   paste0(ori_data_path, codename[[1]], '.csv') %>%
     data.table::fread(colClasses = c('integer64')) %>%
-    mutate(!!(codename[[2]]) := 1) #%>%
-    # merge(k_d_all, ., by = 'visit_num')
+    mutate(!!(codename[[2]]) := 1) 
 }
 code_names <- c(
   'aki-codes', 'is_aki',
@@ -124,40 +118,64 @@ code_names <- c(
   'acetazolamide', 'on_acetazolamide',
   'spironolactone', 'on_spironolactone') %>%
   matrix(nrow = 2) %>%
-  t() %>%
+  t() 
+
+code_list <- code_names %>%
   as_tibble() %>%
   split(.$V1) %>%
   map(visits)
 
+
+k_ext <- k_d_all %>%
+  mutate(delta_val = post_repletion_val - pre_repletion_val) %>%
+  group_by(visit_num, 
+           pre_repletion_val_date_offset_seconds,
+           post_repletion_val_date_offset_seconds) %>%
+  add_tally() %>%
+  mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
+  # Adjust for 4.4 mEq K / 3 mmol P in KH2PO4.
+  # Only K dataframe!
+  mutate(performed_dose = performed_dose * ifelse(
+    (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
+    4.4/3.0,
+    1)
+  ) %>%
+  list() %>% 
+  c(code_list, list(gfr_info, hospital_d)) %>%
+  reduce(left_join, by = 'visit_num') %>%
+  mutate_at(code_names[,2], x = replace_na(x, 0)) #%>% # fill in 0 for NAs
+  # mutate(performed_day_of_week = performed_date %>% ymd() %>% weekdays())
+
 setdiff(colnames(k_d), colnames(k_ext))
-
-k_ext <- c(list(k_d_all), code_names) %>%
-  reduce(left_join)
-
-
-# col_name = codename %>% slice(1,2)
-# paste0(ori_data_path, codename[1], '.csv') 
-paste0(ori_data_path, codename[[1]], '.csv') %>%
-    data.table::fread(colClasses = c('integer64')) %>%
-    mutate((!!codename[[2]]) := 1)
-
-
-vis_dat <- paste0(ori_data_path, code_names$V1, '.csv') %>%
-  as.list() %>%
-  set_names(code_names$V2) %>%
-  lapply(data.table::fread)
-
-str(vis_dat[['on_spironolactone']])
-
+identical(k_d$gfr_mdrd_below_30_x, k_d$gfr_mdrd_below_30_y)
 ```
+
+Now let's filter:
 
 ```{r}
-# k_d_all <- k_d_all %>%
-#   mutate(on_spironolactone = as.integer(visit_num %in% vis_dat[['on_spironolactone']]))
+k_fillna <- k_ext %>%
+  mutate_at(code_names[, 2], funs(if_else(is.na(.), 0, .) ))
+
+table(k_ext$is_parathyroid)
+# Include patients:
+k_filtered <- k_ext %>%
+  filter(# age >= 18 & # over 18 years old
+           # prbc_given == 0 & # no PRBC
+           on_tpn == 0 & # not on TPN
+           is_rhabdo == 0 & # no rhabdomyolysis code
+           is_parathyroid == 0 & # no parathyroid disorders of any kind
+           is_sarcoid == 0 & # no sarcoid disorders of any kind
+           is_esrd == 0 & # no code for ESRD
+           is_dialysis == 0 & # no code for dialysis
+           given_dialysis == 0 &# no dialysis procedure
+           ! gfr_mdrd_below_30
+  )
 ```
 
 
 
+
+filter(age >= 18) %>% # over 18 years old
 Set thresholds:
 ```{r}
 rep_count_threshold <- 20
