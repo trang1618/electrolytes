@@ -10,18 +10,30 @@ library(vroom)
 library(lubridate)
 ```
 
+Utils:
+
+```{r}
+add_F <- function(df, var){
+  # add FALSE to the remaining visits,
+  # e.g. visits that are not in the table acetazolamide.csv
+  # will have `on_acetazolamide = F`
+  
+  tibble(visit_num = setdiff(k_all_visits, df$visit_num)) %>%
+    mutate((!!var) := FALSE) %>%
+    rbind(df)
+}
+```
+
 Testing:
 
 ```{r}
-data_path <- '../wharton/processed_data/'
+data_path <- '../wharton/processed_data/' 
 ori_data_path <- '../wharton/data/'
-# visit_hospital_d <- paste0(data_path, 'visit_hospital.csv') %>% read_csv()
-# unique(visit_hospital_d$hospital)
 
 read_d <- function(lyte) paste0(data_path, lyte, '_d.csv') %>% data.table::fread()
 read_ori <- function(var){
   dat <- paste0(ori_data_path, var, '.csv') %>%
-    data.table::fread(colClasses = c(visit_num = 'integer64')) %>%
+    data.table::fread(colClasses = c(visit_num = 'character')) %>%
     distinct()
   
   # fix issues with duplicates in the daily_labs tables
@@ -36,17 +48,20 @@ read_ori <- function(var){
   
   if ('day_in_unit' %in% colnames(dat)){
     dat <- dat %>%
-      mutate(day_in_unit = 
-               gsub(' 00:00:00', '', day_in_unit))
+      mutate(day_in_unit = gsub(' 00:00:00', '', day_in_unit))
   }
   
   dat
 }
 
-d <- read_d('k')
+k_d <- read_d('k')
 mg_d <- read_d('mg')
 ca_d <- read_d('ca')
 phos_d <- read_d('phos')
+k_d_all <- read_ori('potassium_data')
+hospital_d <- read_ori('visit_hospital')
+k_all_visits <- k_d_all$visit_num %>%
+  unique()
 
 colnames(k_d)
 table(k_d$medication_name)
@@ -81,23 +96,20 @@ system.time(
 gfr_info <- vitals_d %>%
   filter(gfr_mdrd > 0 & gfr_mdrd < 30) %>%
   select(visit_num) %>%
-  mutate(gfr_mdrd_below_30 = 1)
-
-
-```
-
-
-```{r}
-k_d_all <- read_ori('potassium_data')
-hospital_d <- read_ori('visit_hospital')
+  unique() %>%
+  mutate(gfr_mdrd_below_30 = TRUE) %>%
+  add_F('gfr_mdrd_below_30')
 
 ```
+
+
 
 ```{r}
 visits <- function(codename){# dat_name and col_name
   paste0(ori_data_path, codename[[1]], '.csv') %>%
     data.table::fread(colClasses = c('integer64')) %>%
-    mutate(!!(codename[[2]]) := 1) 
+    mutate(!!(codename[[2]]) := TRUE) %>%
+    add_F(codename[[2]])
 }
 code_names <- c(
   'aki-codes', 'is_aki',
@@ -125,53 +137,66 @@ code_list <- code_names %>%
   split(.$V1) %>%
   map(visits)
 
+system.time(
+  k_ext <- k_d_all %>%
+    mutate(delta_val = post_repletion_val - pre_repletion_val,
+           performed_day_of_week = performed_date %>% ymd() %>% weekdays(),
+           performed_dose = performed_dose * ifelse(
+             (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
+             4.4/3.0,
+             1) # adjust for 4.4 mEq K / 3 mmol P in KH2PO4 only K dataframe!
+    ) %>%
+    group_by(visit_num, 
+             pre_repletion_val_date_offset_seconds,
+             post_repletion_val_date_offset_seconds) %>%
+    add_tally() %>%
+    mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
+    list() %>% 
+    c(code_list, list(gfr_info, hospital_d)) %>%
+    reduce(left_join, by = 'visit_num') 
+)
 
-k_ext <- k_d_all %>%
-  mutate(delta_val = post_repletion_val - pre_repletion_val) %>%
-  group_by(visit_num, 
-           pre_repletion_val_date_offset_seconds,
-           post_repletion_val_date_offset_seconds) %>%
-  add_tally() %>%
-  mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
-  # Adjust for 4.4 mEq K / 3 mmol P in KH2PO4.
-  # Only K dataframe!
-  mutate(performed_dose = performed_dose * ifelse(
-    (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
-    4.4/3.0,
-    1)
-  ) %>%
-  list() %>% 
-  c(code_list, list(gfr_info, hospital_d)) %>%
-  reduce(left_join, by = 'visit_num') %>%
-  mutate_at(code_names[,2], x = replace_na(x, 0)) #%>% # fill in 0 for NAs
-  # mutate(performed_day_of_week = performed_date %>% ymd() %>% weekdays())
-
+# Checking columns:
 setdiff(colnames(k_d), colnames(k_ext))
 identical(k_d$gfr_mdrd_below_30_x, k_d$gfr_mdrd_below_30_y)
+# It's a match! `group_size` is `n`.
 ```
 
 Now let's filter:
 
 ```{r}
-k_fillna <- k_ext %>%
-  mutate_at(code_names[, 2], funs(if_else(is.na(.), 0, .) ))
 
-table(k_ext$is_parathyroid)
+visit_num_filtered <- vitals_d %>%
+  filter(age >= 18 & # over 18 years old
+           prbc_given == 0 # no PRBC
+  ) %>%
+  pull(visit_num) %>%
+  unique()
+
 # Include patients:
 k_filtered <- k_ext %>%
-  filter(# age >= 18 & # over 18 years old
-           # prbc_given == 0 & # no PRBC
-           on_tpn == 0 & # not on TPN
-           is_rhabdo == 0 & # no rhabdomyolysis code
-           is_parathyroid == 0 & # no parathyroid disorders of any kind
-           is_sarcoid == 0 & # no sarcoid disorders of any kind
-           is_esrd == 0 & # no code for ESRD
-           is_dialysis == 0 & # no code for dialysis
-           given_dialysis == 0 &# no dialysis procedure
-           ! gfr_mdrd_below_30
+  # mutate(visit_num = as.character(visit_num)) %>%
+  filter(visit_num %in% visit_num_filtered & 
+           !(on_tpn | # not on TPN
+               is_rhabdo | # no rhabdomyolysis code
+               is_parathyroid | # no parathyroid disorders of any kind
+               is_sarcoid | # no sarcoid disorders of any kind
+               is_esrd | # no code for ESRD
+               is_dialysis | # no code for dialysis
+               given_dialysis | # no dialysis procedure
+               gfr_mdrd_below_30)
+  ) %>%
+  filter(pre_repletion_val >= 2.0 & 
+           pre_repletion_val <= 7.0 & 
+           delta_val <= 4.0
   )
 ```
 
+```{r}
+k_filtered <- k_ext %>%
+  # mutate(visit_num = as.character(visit_num)) %>%
+  filter(visit_num %in% visit_num_filtered)
+```
 
 
 
