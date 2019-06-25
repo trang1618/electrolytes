@@ -1,0 +1,255 @@
+---
+title: "Analyze the complete datasets"
+output: html_document
+---
+## Setup:
+
+```{r}
+library(tidyverse)
+library(vroom)
+library(lubridate)
+```
+
+## Utils
+
+Load utility functions:
+
+```{r}
+source('utils.R')
+```
+
+## Read in data:
+
+```{r}
+data_path <- '../wharton/processed_data/' 
+ori_data_path <- '../wharton/data/'
+
+k_d <- read_d('k')
+k_d_all <- read_ori('potassium_data')
+hospital_d <- read_ori('visit_hospital')
+k_all_visits <- k_d_all$visit_num %>%
+  unique()
+
+code_list <- read_csv('codenames.csv') %>%
+  split(.$V1) %>%
+  map(visits)
+```
+
+Note: `k_d` has 109723 observations/repletions but only 50470 unique visits.
+
+
+### Add variables to vitals_d
+
+Calculate GFR by MDRD calculation
+female_coeff = 0.742 if is_female==1 else 1
+aa_coeff = 1.212 if_aa==1 else 1
+(assuming no African-American patients - data not available)
+$GFR = 175 * Cr^{-1.154} * age^{-0.203} * femalefactor$
+
+
+```{r}
+daily_dat <- c('daily_vitals', 
+               paste0('given_', c('fluid_bolus', 'beta_blocker', 'diltiazem', 'amiodarone')), 
+               'creatinine', 'is_ventilated', 
+               paste0(c('potassium', 'magnesium', 'calcium', 'phosphate'), '_daily_labs'))
+
+system.time(
+  vitals_d <- lapply(daily_dat, read_ori) %>%
+    reduce(left_join, by = c('visit_num', 'day_in_unit')) %>%
+    list() %>%
+    c(lapply(c('age_gender', 'weights', 'visit_hospital'), read_ori)) %>%
+    reduce(left_join, by = 'visit_num') %>%
+    mutate(gfr_mdrd = 175 *
+             creatinine^(-1.154) *
+             age^(-0.203) *
+             ifelse(is_female, 0.742, 1)) 
+)
+
+gfr_info <- vitals_d %>%
+  filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>%
+  select(visit_num) %>%
+  unique() %>%
+  mutate(gfr_mdrd_below_30 = TRUE) %>%
+  add_F('gfr_mdrd_below_30')
+
+```
+
+
+### Add variables to `k_d`:
+
+```{r}
+system.time(
+  k_ext <- k_d_all %>%
+    mutate(delta_val = post_repletion_val - pre_repletion_val,
+           performed_day_of_week = performed_date %>% ymd_hms() %>% weekdays(),
+           performed_date_only = performed_date %>% ymd_hms() %>% date() %>% as.character(),
+           performed_dose = performed_dose * ifelse(
+             (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
+             4.4/3.0,
+             1) # adjust for 4.4 mEq K / 3 mmol P in KH2PO4 only K dataframe!
+    ) %>%
+    group_by(visit_num, 
+             pre_repletion_val_date_offset_seconds,
+             post_repletion_val_date_offset_seconds) %>%
+    add_tally() %>%
+    mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
+    ungroup() %>%
+    list() %>% 
+    c(code_list, list(gfr_info, hospital_d)) %>%
+    reduce(left_join, by = 'visit_num')
+)
+
+# Checking columns:
+setdiff(colnames(k_d), colnames(k_ext))
+# setdiff(colnames(dv_d), colnames(vitals_d))
+identical(k_d$gfr_mdrd_below_30_x, k_d$gfr_mdrd_below_30_y)
+# It's a match! `group_size` is `n`.
+```
+
+
+
+
+Note: quite a few missing "age".
+
+Now let's filter:
+
+```{r}
+vitals_merged <- vitals_d %>%
+  merge(k_ext,
+        by.x = c('visit_num', 'day_in_unit'),
+        by.y = c('visit_num', 'performed_date_only')
+  )
+# table(vitals_merged$prbc_given)
+visits_to_exclude <- vitals_merged %>%
+  filter(on_tpn |               # on TPN
+           is_rhabdo |          # rhabdomyolysis code
+           is_parathyroid |     # parathyroid disorders of any kind
+           is_sarcoid |         # sarcoid disorders of any kind
+           is_esrd |            # code for ESRD
+           is_dialysis |        # code for dialysis
+           given_dialysis |     # dialysis procedure
+           age < 18 |
+           # prbc_given == 1 |
+           gfr_mdrd < 30
+  ) %>%
+  pull(visit_num) %>%
+  unique()
+
+table(vitals_d$prbc_given)
+```
+
+
+```{r}
+visit_num_filtered <- vitals_d %>%
+  # filter(
+  #   (age >= 18) & # over 18 years old
+  #     prbc_given == 0 # no PRBC
+  # ) %>%
+  # filter(is.na(gfr_mdrd) | gfr_mdrd > 30) %>%
+  pull(visit_num) %>%
+  unique() %>%
+  setdiff(visits_to_exclude)
+
+# Include patients:
+k_filtered <- k_ext %>%
+  filter((visit_num %in% visit_num_filtered)   # no dialysis procedure
+  ) %>%
+  filter(pre_repletion_val >= 2.0 & 
+           pre_repletion_val <= 7.0 & 
+           delta_val <= 4.0 &
+           n <= 1
+  )
+vitals_filtered <- vitals_merged %>%
+  filter((visit_num %in% visit_num_filtered)   # no dialysis procedure
+  ) %>%
+  filter(pre_repletion_val >= 2.0 & 
+           pre_repletion_val <= 7.0 & 
+           delta_val <= 4.0 &
+           n <= 1
+  )
+k_ext %>% filter(gfr_mdrd_below_30) %>% nrow()
+k_filtered %>% pull(visit_num) %>% unique() %>% length()
+save(vitals_filtered, file = 'vitals_filtered_prbc.Rdata')
+```
+
+From jpynb:
+K repletions in k_d: 430137
+Mg repletions in mg_d: 238410
+Ca repletions in ca_d: 15740
+Phos repletions in phos_d: 49979
+ICU days in dv_d: 9786414
+
+Will exclude 50926 visits: patients were under 18 years old
+```{r}
+vitals_d %>% filter(age < 18 | is.na(age)) %>% pull(visit_num) %>% unique() %>% length()
+```
+
+Will exclude 39116 visits: patients got PRBCs
+```{r}
+vitals_d %>% filter(prbc_given == 1) %>% pull(visit_num) %>% unique() %>% length()
+```
+
+Will exclude 9138 visits: patients had TPN orders of some kind
+```{r}
+vitals_merged %>% filter(!on_tpn) %>% pull(visit_num) %>% unique() %>% length() # 8234
+```
+
+Will exclude 853 visits: patients had rhabdomyolysis codes
+```{r}
+k_ext %>% filter(is_rhabdo) %>% pull(visit_num) %>% unique() %>% length() # 720
+```
+
+Will exclude 642 visits: patients had parathyroid disorders of any kind
+```{r}
+k_ext %>% filter(is_parathyroid) %>% pull(visit_num) %>% unique() %>% length() # 463
+```
+
+Will exclude 1073 visits: patients had sarcoid disorders of any kind
+```{r}
+k_ext %>% filter(is_sarcoid) %>% pull(visit_num) %>% unique() %>% length() # 883
+```
+
+Will exclude 3702 visits: patients had codes for ESRD, dialysis, or both
+```{r}
+k_ext %>% filter(is_esrd|is_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2141
+# k_ext %>% filter(is_dialysis) %>% pull(visit_num) %>% unique() %>% length()
+```
+
+Will exclude 4058 visits: patients had some kind of dialysis procedure
+```{r}
+k_ext %>% filter(given_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2589
+# vitals_d %>% filter(given_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2589
+
+```
+
+Will exclude 41829 visits: patients had a recorded GFR under 30 at any point
+   (though patients with no GFR values were left in)
+```{r}
+vitals_merged %>% filter(gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length() # 13675
+# k_ext %>% filter(!gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length()
+# vitals_d %>%
+#   filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>% pull(visit_num) %>% unique() %>% length()
+# vitals_d %>% filter(gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length()
+
+k_ext %>% filter(n<=1) %>% nrow() # 260796
+```
+
+
+```{r}
+visits_kd <- k_d %>% pull(visit_num) %>% unique()
+visits_kfiltered <- k_filtered %>% pull(visit_num) %>% unique()
+```
+
+
+
+Note all these exclusions are from the original set, NOT stepwise, so a given patient may be excluded for more than one reason
+
+After those exclusions:
+K repletions in k_d: 182413
+Mg repletions in mg_d: 98246
+Ca repletions in ca_d: 2898
+Phos repletions in phos_d: 16902
+ICU days in dv_d: 3128249
+Number of visits in dv_d: 332018
+
+
