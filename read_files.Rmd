@@ -1,93 +1,30 @@
 ---
-title: "Reading Files"
+title: "Preliminary analyses"
 output: html_document
 ---
-Setup:
+## Setup:
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(vroom)
 library(lubridate)
 ```
 
-Utils:
+## Utils
+
+Load utility functions:
 
 ```{r}
-add_F <- function(df, var){
-  # add FALSE to the remaining visits,
-  # e.g. visits that are not in the table acetazolamide.csv
-  # will have `on_acetazolamide = F`
-  
-  tibble(visit_num = setdiff(k_all_visits, df$visit_num)) %>%
-    mutate((!!var) := FALSE) %>%
-    rbind(df)
-}
+source('utils.R')
 ```
 
-```{r}
-visits <- function(codename){# dat_name and col_name
-  paste0(ori_data_path, codename[[1]], '.csv') %>%
-    data.table::fread(colClasses = c('character')) %>%
-    mutate(!!(codename[[2]]) := TRUE) %>%
-    add_F(codename[[2]])
-}
-code_names <- c(
-  'aki-codes', 'is_aki',
-  'ckd-codes', 'is_ckd',
-  'esrd-codes', 'is_esrd',
-  'dialysis-codes', 'is_dialysis',
-  'dialysis-proc-patients', 'given_dialysis',
-  'paralyzed-codes', 'is_paralyzed',
-  'rhabdo-codes', 'is_rhabdo',
-  'chf-codes', 'is_chf',
-  'cad-codes', 'is_cad',
-  'parathyroid-codes', 'is_parathyroid',
-  'sarcoid-codes', 'is_sarcoid',
-  'afib-codes', 'is_afib',
-  'tpn-patients', 'on_tpn',
-  'loop-diuretics', 'on_loop_diuretic',
-  'thiazides', 'on_thiazide',
-  'acetazolamide', 'on_acetazolamide',
-  'spironolactone', 'on_spironolactone') %>%
-  matrix(nrow = 2) %>%
-  t() 
-
-code_list <- code_names %>%
-  as_tibble() %>%
-  split(.$V1) %>%
-  map(visits)
-```
-
-Testing:
+## Read in data:
 
 ```{r}
 data_path <- '../wharton/processed_data/' 
 ori_data_path <- '../wharton/data/'
 
-read_d <- function(lyte) paste0(data_path, lyte, '_d.csv') %>% data.table::fread()
-read_ori <- function(var){
-  dat <- paste0(ori_data_path, var, '.csv') %>%
-    data.table::fread(colClasses = c(visit_num = 'character')) %>%
-    distinct()
-  
-  # fix issues with duplicates in the daily_labs tables
-  if (grepl('_daily_labs', var)){
-    lyte <- gsub('_daily_labs', '', var)
-    cols <- paste(c('min', 'max'), lyte, 'val', sep = '_')
-    dat <- dat %>%
-      group_by(visit_num, day_in_unit) %>%
-      summarise(!!(cols[1]) := min(!!(sym(cols[1]))),
-                !!(cols[2]) := max(!!(sym(cols[2]))))
-  }
-  
-  if ('day_in_unit' %in% colnames(dat)){
-    dat <- dat %>%
-      mutate(day_in_unit = gsub(' 00:00:00', '', day_in_unit))
-  }
-
-  dat
-}
-
+load('vitals_filtered_prbc.Rdata')
 k_d <- read_d('k')
 mg_d <- read_d('mg')
 ca_d <- read_d('ca')
@@ -95,236 +32,131 @@ phos_d <- read_d('phos')
 dv_d <- read_d('dv')
 k_d_all <- read_ori('potassium_data')
 hospital_d <- read_ori('visit_hospital')
-ca_d_all <- read_ori('calcium_data')
-ca_all_visits <- ca_d_all$visit_num %>%
-  unique()
-
 k_all_visits <- k_d_all$visit_num %>%
   unique()
-
-table(k_d$medication_name)
-table(k_d$hospital)
 ```
-
-Note: `k_d` has 109723 observations/repletions but only 50470 unique visits.
-
-Calculate GFR by MDRD calculation
-female_coeff = 0.742 if is_female==1 else 1
-aa_coeff = 1.212 if_aa==1 else 1
-(assuming no African-American patients - data not available)
-$GFR = 175 * Cr^{-1.154} * age^{-0.203} * femalefactor$
 
 ```{r}
-daily_dat <- c('daily_vitals', 
-               paste0('given_', c('fluid_bolus', 'beta_blocker', 'diltiazem', 'amiodarone')), 
-               'creatinine', 'is_ventilated', 
-               paste0(c('potassium', 'magnesium', 'calcium', 'phosphate'), '_daily_labs'))
-
-system.time(
-  vitals_d <- lapply(daily_dat, read_ori) %>%
-    reduce(left_join, by = c('visit_num', 'day_in_unit')) %>%
-    list() %>%
-    c(lapply(c('age_gender', 'weights', 'visit_hospital'), read_ori)) %>%
-    reduce(left_join, by = 'visit_num') %>%
-    mutate(gfr_mdrd = 175 *
-             creatinine^(-1.154) *
-             age^(-0.203) *
-             ifelse(is_female, 0.742, 1)) 
-)
-
-gfr_info <- vitals_d %>%
-  filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>%
-  select(visit_num) %>%
-  unique() %>%
-  mutate(gfr_mdrd_below_30 = TRUE) %>%
-  add_F('gfr_mdrd_below_30')
-
+# extend k_d dataset
+k_d <- k_d %>%
+  mutate(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
+         t_repletion_orderlab_overlap = post_repletion_val_order_date_offset_seconds - performed_date_offset_seconds,
+         t_repletion_resultlab_overlap = post_repletion_val_date_offset_seconds - performed_date_offset_seconds,
+         weekend = performed_day_of_week >= 5)
 ```
 
-
-
+## PRBC
+How much are potassium level changes depending on the transfusion of PRBC?
 
 ```{r}
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + prbc_given, data = vitals_filtered) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
 
-
-system.time(
-  k_ext <- k_d_all %>%
-    mutate(delta_val = post_repletion_val - pre_repletion_val,
-           performed_day_of_week = performed_date %>% ymd_hms() %>% weekdays(),
-           performed_date_only = performed_date %>% ymd_hms() %>% date() %>% as.character(),
-           performed_dose = performed_dose * ifelse(
-             (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
-             4.4/3.0,
-             1) # adjust for 4.4 mEq K / 3 mmol P in KH2PO4 only K dataframe!
-    ) %>%
-    group_by(visit_num, 
-             pre_repletion_val_date_offset_seconds,
-             post_repletion_val_date_offset_seconds) %>%
-    add_tally() %>%
-    mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
-    ungroup() %>%
-    list() %>% 
-    c(code_list, list(gfr_info, hospital_d)) %>%
-    reduce(left_join, by = 'visit_num')
-)
-
-# Checking columns:
-setdiff(colnames(k_d), colnames(k_ext))
-# setdiff(colnames(dv_d), colnames(vitals_d))
-identical(k_d$gfr_mdrd_below_30_x, k_d$gfr_mdrd_below_30_y)
-# It's a match! `group_size` is `n`.
+# lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+#   summary() %>%
+#   broom::tidy() %>%
+#   mutate(padj = p.adjust(p.value, method = 'BH'))
+# 
+# lm(order_to_repletion_seconds ~ pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone , data = vitals_filtered) %>%
+#   summary() %>%
+#   broom::tidy()
 ```
 
+## Focus on pre-repletion value > 4.5
+
+Descriptive stats:
+
+```{r echo = F}
+improper_k_d <- k_d %>% filter(pre_repletion_val > 4.5) 
+improper_mg_d <- mg_d %>% filter(pre_repletion_val > 2.5)
+
+k_d %>%
+  count(provider_name) %>%
+  nrow() %>%
+  paste('Total number providers:', .) %>%
+  print()
+
+nrow(improper_k_d) %>%
+  paste('total improper K repletions.') %>%
+  print()
+
+improper_k_d %>%
+  count(provider_name) %>%
+  nrow() %>%
+  paste('providers perform improper K repletion.') %>%
+  print()
+
+improper_k_d %>%
+  count(provider_name) %>%
+  filter(n >= 10) %>%
+  nrow() %>%
+  paste('providers do it at least 10 times.') %>%
+  print()
+
+nrow(improper_mg_d) %>%
+  paste('total improper Mg repletions.') %>%
+  print() # 187
+
+improper_mg_d %>%
+  count(provider_name) %>%
+  nrow() %>%
+  paste('providers perform improper Mg repletion.') %>%
+  print()
+
+improper_mg_d %>%
+  count(provider_name) %>%
+  filter(n >= 5) %>%
+  nrow() %>%
+  paste('providers do it at least 5 times.') %>%
+  print()
+
+intersect(improper_mg_d$provider_name,
+          improper_k_d$provider_name) %>%
+  length() %>%
+  paste('of these providers also improperly prescribe K.') %>%
+  print()
 
 
+```
 
-Note: quite a few missing "age".
-
-Now let's filter:
+Hospitals: improper repletions and total repletions:
 
 ```{r}
-vitals_merged <- vitals_d %>%
-  merge(k_ext,
-        by.x = c('visit_num', 'day_in_unit'),
-        by.y = c('visit_num', 'performed_date_only')
-  )
-
-visits_to_exclude <- vitals_merged %>%
-  filter(on_tpn |               # on TPN
-           is_rhabdo |          # rhabdomyolysis code
-           is_parathyroid |     # parathyroid disorders of any kind
-           is_sarcoid |         # sarcoid disorders of any kind
-           is_esrd |            # code for ESRD
-           is_dialysis |        # code for dialysis
-           given_dialysis       # dialysis procedure
-  ) %>%
-  pull(visit_num) %>%
-  unique()
+improper_k_d %>%
+  dplyr::select(provider_name, hospital) %>%
+  count(hospital) %>%
+  left_join(count(k_d, hospital), by = 'hospital')
 ```
 
+What may affect a provider's decision to prescribe an improper repletion:
 
 ```{r}
-visit_num_filtered <- vitals_d %>%
-  filter(
-    (age >= 18) & # over 18 years old
-      prbc_given == 0 # no PRBC
-  ) %>%
-  filter(is.na(gfr_mdrd) | gfr_mdrd > 30) %>%
-  pull(visit_num) %>%
-  unique() %>%
-  setdiff(visits_to_exclude)
+k_d <- k_d %>% 
+  mutate(improper_repletion = pre_repletion_val > 4.5) 
 
-# Include patients:
-k_filtered <- k_ext %>%
-  # mutate(visit_num = as.character(visit_num)) %>%
-  filter((visit_num %in% visit_num_filtered)   # no dialysis procedure
-  ) %>%
-  filter(pre_repletion_val >= 2.0 & 
-           pre_repletion_val <= 7.0 & 
-           delta_val <= 4.0 &
-           n <= 1
-  )
-
-k_ext %>% filter(gfr_mdrd_below_30) %>% nrow()
-k_filtered %>% pull(visit_num) %>% unique() %>% length()
-```
-
-From jpynb:
-K repletions in k_d: 430137
-Mg repletions in mg_d: 238410
-Ca repletions in ca_d: 15740
-Phos repletions in phos_d: 49979
-ICU days in dv_d: 9786414
-
-Will exclude 50926 visits: patients were under 18 years old
-```{r}
-vitals_d %>% filter(age < 18 | is.na(age)) %>% pull(visit_num) %>% unique() %>% length()
-```
-
-Will exclude 39116 visits: patients got PRBCs
-```{r}
-vitals_d %>% filter(prbc_given == 1) %>% pull(visit_num) %>% unique() %>% length()
-```
-
-Will exclude 9138 visits: patients had TPN orders of some kind
-```{r}
-vitals_merged %>% filter(on_tpn) %>% pull(visit_num) %>% unique() %>% length() # 8234
-```
-
-Will exclude 853 visits: patients had rhabdomyolysis codes
-```{r}
-k_ext %>% filter(is_rhabdo) %>% pull(visit_num) %>% unique() %>% length() # 720
-```
-
-Will exclude 642 visits: patients had parathyroid disorders of any kind
-```{r}
-k_ext %>% filter(is_parathyroid) %>% pull(visit_num) %>% unique() %>% length() # 463
-```
-
-Will exclude 1073 visits: patients had sarcoid disorders of any kind
-```{r}
-k_ext %>% filter(is_sarcoid) %>% pull(visit_num) %>% unique() %>% length() # 883
-```
-
-Will exclude 3702 visits: patients had codes for ESRD, dialysis, or both
-```{r}
-k_ext %>% filter(is_esrd|is_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2141
-# k_ext %>% filter(is_dialysis) %>% pull(visit_num) %>% unique() %>% length()
-```
-
-Will exclude 4058 visits: patients had some kind of dialysis procedure
-```{r}
-k_ext %>% filter(given_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2589
-vitals_d %>% filter(given_dialysis) %>% pull(visit_num) %>% unique() %>% length() # 2589
-
-```
-
-Will exclude 41829 visits: patients had a recorded GFR under 30 at any point
-   (though patients with no GFR values were left in)
-```{r}
-# vitals_merged %>% filter(gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length() # 13675
-# k_ext %>% filter(!gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length()
-vitals_d %>%
-  filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>% pull(visit_num) %>% unique() %>% length()
-
-k_ext %>% filter(n>1) %>% pull(visit_num) %>% unique() %>% length() # 169248
-k_ext %>% filter(n<=1) %>% nrow()
-# gfr_info_vitals%>% filter(gfr_mdrd_below_30) %>% pull(visit_num) %>% unique() %>% length()
-# gfr_info_vitals <- vitals_d %>%
-#   filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>%
-#   select(visit_num) %>%
-#   mutate(gfr_mdrd_below_30 = TRUE) 
-
+lm(improper_repletion ~ is_iv + gfr_mdrd_below_30_x + performed_day_of_week + hospital +
+     on_tpn + is_aki + is_ckd + is_esrd + is_dialysis + is_sarcoid + is_afib + is_paralyzed + 
+     is_rhabdo + is_parathyroid + 
+     is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone,
+   data = k_d) %>%
+  summary() %>%
+  broom::tidy()
+# table(k_d$improper_repletion)
+table(k_d$is_iv, k_d$improper_repletion)
+table(k_d$is_ckd, k_d$improper_repletion)
+table(k_d$is_afib, k_d$improper_repletion)
+table(k_d$on_loop_diuretic, k_d$improper_repletion)
+table(k_d$is_chf, k_d$improper_repletion)
+table(k_d$on_thiazide, k_d$improper_repletion)
 ```
 
 
-
-Note all these exclusions are from the original set, NOT stepwise, so a given patient may be excluded for more than one reason
-
-After those exclusions:
-K repletions in k_d: 182413
-Mg repletions in mg_d: 98246
-Ca repletions in ca_d: 2898
-Phos repletions in phos_d: 16902
-ICU days in dv_d: 3128249
-Number of visits in dv_d: 332018
-
-
-
-(though patients with no GFR values were left in)
-
-
-Set thresholds:
-
-```{r}
-rep_count_threshold <- 20
-```
-
-
-
-
-Reproduce some plots:
-
+## Reproduce some plots:
 
 ### At what point do providers replete electrolytes?
 Cell 15:
@@ -332,7 +164,7 @@ Cell 15:
 ```{r}
 k_d %>% group_by(provider_name) %>%
   add_tally(pre_repletion_val) %>%
-  filter(n > rep_count_threshold) %>%
+  filter(n > 20) %>%
   summarise(mean_pre_rep_val = mean(pre_repletion_val)) %>%
   ggplot(aes(x = mean_pre_rep_val)) +
   geom_histogram(binwidth = 0.1) +
@@ -350,13 +182,9 @@ Cell 17:
 
 ```{r}
 boxplot(k_d$result_to_order_seconds)
-ymd_hms(k_d$performed_date) - ymd(k_d$result_to_order_seconds)
+# ymd_hms(k_d$performed_date) - ymd(k_d$result_to_order_seconds)
 ```
 
-
-```{r}
-ymd_hms(k_d$performed_date) %>% hour()
-```
 
 
 Cell 21:
@@ -384,48 +212,32 @@ k_d %>%
 
 
 ```{r}
-delta_repletion <- k_d %>%
-  transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
-  pull()
+ineffective_proportion <- function(lyte){
+  sum(lyte$delta_val < 0)/length(lyte$delta_val) # 20% for K
+}
 
-# delta_repletion <- mg_d %>%
-#   transmute(delta_repletion = post_repletion_val - pre_repletion_val) %>%
-#   pull()
+delta_repletion <- k_d$delta_val
 sum(delta_repletion < 0)/length(delta_repletion) # 23%
 ineffective_proportion(mg_d) # 20%
 sum(phos_d$delta_val < 0)/length(phos_d$delta_val) # 16%
 sum(ca_d$delta_val < 0)/length(ca_d$delta_val) # 20%
 
-ineffective_proportion <- function(elec){
-  sum(elec$delta_val < 0)/length(elec$delta_val) # 20%
-}
-
-
 cor.test(delta_repletion, k_d$on_acetazolamide)
 # t.test(alternative = 'greater')
 
-# last 6 hours dialysis, +/- 12 hours
-# excluded dialysis
-# why?
-# same patient: K drop, K increase?
-# heart rate: heart beat high
-# drug datasets
-
-
 ```
 
+last 6 hours dialysis, +/- 12 hours
+excluded dialysis
+why?
+same patient: K drop, K increase?
+heart rate: heart beat high
+drug datasets
 
 
 
 
 
-
-
-```{r}
-lm(order_to_repletion_seconds ~ pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
-  summary() %>%
-  broom::tidy()
-```
 
 ```{r}
 lm(delta_val ~ performed_dose + 
@@ -444,17 +256,9 @@ cor(k_d$performed_dose, k_d$delta_val)
 ```
 
 ```{r}
-# extend k_d dataset
-k_d_ext <- k_d %>%
-  transmute(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
-         t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
-         t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
-         t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
-         t_repletion_orderlab_overlap = post_repletion_val_order_date_offset_seconds - performed_date_offset_seconds,
-         t_repletion_resultlab_overlap = post_repletion_val_date_offset_seconds - performed_date_offset_seconds,
-         weekend = performed_day_of_week >= 5)
 
-ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
+
+ggplot(aes(x = t_order/60, fill = weekend), data = k_d) +
   geom_histogram(bins = 300, stat = 'density',
                  position = 'identity', alpha = 0.8) +
   scale_x_continuous(limits = c(-20000/60, 86400/60))
@@ -463,91 +267,10 @@ ggplot(aes(x = t_order/60, fill = weekend), data = k_d_ext) +
 ```
 
 
-Focus on depletion of > 4.5
-
-```{r}
-k_d %>%
-  filter(pre_repletion_val > 4.5) %>%
-  nrow()
-#2303
-
-k_d %>%
-  filter(pre_repletion_val > 4.5) %>%
-  count(provider_name) %>%
-  # filter(n >= 10) %>%
-  nrow()
-# Providers that perform improper repletion: 669
-
-k_d %>%
-  filter(pre_repletion_val > 4.5) %>%
-  count(provider_name) %>%
-  filter(n >= 10) %>%
-  nrow()
-
-# Are these providers over prescribe for Mg? Yes.
-mg_d %>%
-  filter(pre_repletion_val > 2.5) %>%
-  nrow()
-#2303
-
-mg_d %>%
-  filter(pre_repletion_val > 2.5) %>%
-  count(provider_name) %>%
-  # filter(n >= 10) %>%
-  nrow()
-# Providers that perform improper repletion: 669
-
-mg_d %>%
-  filter(pre_repletion_val > 2.5) %>%
-  count(provider_name) %>%
-  filter(n >= 10) %>%
-  nrow()
-
-
-# function in the system?
-# overprotective? defensive? systematic error?
-# why K drop?
-
-
-
-
-k_d %>%
-  filter(pre_repletion_val > 4.5) %>%
-  dplyr::select(provider_name, hospital) %>%
-  count(hospital)
-
-k_d %>%
-  # filter(pre_repletion_val > 4.5) %>%
-  dplyr::select(provider_name, hospital) %>%
-  count(hospital)
-
-
-# some providers change hospitals
-
-  # filter(n >= 10) %>%
-
-
-k_d %>%
-  count(provider_name) %>%
-  nrow()
-# Total number of providers: 2040
-
-669/2040
-```
-
 
 
 ```{r}
-dat_high_pre <- k_d_ext %>%
-  filter(pre_repletion_val > 4.5)
-
-dat_high_pre %>%
-  nrow()
-#2303
-
-
-
-ggplot(aes(x = t_order/60, fill = weekend), data = dat_high_pre) +
+ggplot(aes(x = t_order/60, fill = weekend), data = improper_k_d) +
   geom_histogram(bins = 300, stat = 'density',
                  position = 'identity', alpha = 0.8) +
   scale_x_continuous(limits = c(-20000/60, 86400/60))
@@ -555,13 +278,13 @@ ggplot(aes(x = t_order/60, fill = weekend), data = dat_high_pre) +
        y = 'Proportion of occurrences')
 
 # of the 2303 improper repletions, how many are before lab results come
-dat_high_pre %>%
+improper_k_d %>%
   filter(t_order < 0) %>%
   filter(t_order > -20000) %>%
   nrow()
 #181
 
-k_d_ext %>%
+k_d %>%
   filter(t_order < 0) %>%
   filter(t_order > -20000) %>%
   nrow()
@@ -583,9 +306,9 @@ Drugs to consider:
 # save(meds_d, file = '../wharton/data/medications.Rdata')
 
 # load('../wharton/data/medications.Rdata')
-colnames(meds_d)
-head(meds_d)
-table(meds_d$MEDICATION_NAME[1:1000])
+# colnames(meds_d)
+# head(meds_d)
+# table(meds_d$MEDICATION_NAME[1:1000])
 ```
 
 ```{r}
@@ -605,67 +328,67 @@ load('../wharton/data/blood_pressure_meds.Rdata')
 ```
 
 ```{r}
-head(diamox)
-diamox <- diamox %>%
-  mutate(diamox_date = mdy_hms(
-    PERFORMED_DATE, 
-    format = '%m/%d/%Y %H.%M.%S %p')
-    [-(nrow(diamox) +1)])
-head(k_d)
+# head(diamox)
+# diamox <- diamox %>%
+#   mutate(diamox_date = mdy_hms(
+#     PERFORMED_DATE, 
+#     format = '%m/%d/%Y %H.%M.%S %p')
+#     [-(nrow(diamox) +1)])
+# head(k_d)
 ```
 
 
 ```{r}
-k_d_time <- k_d %>%
-  mutate(k_date = ymd_hms(
-    performed_date, 
-    format = '%Y-%m-%d %H:%M:%S')
-    [-(nrow(k_d) +1)])
-
-
-head(ymd_hms(k_d$performed_date, 
-    format = '%Y-%m-%d %H:%M:%S'))
-
-colnames(k_d)
-# k_d$post_hr_max
-
-
-head(k_d$performed_date)
-head(diamox$PERFORMED_DATE)
-head(as.Date(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p'))
-library(lubridate)
-date_test <- mdy_hms(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p')
-length(diamox$PERFORMED_DATE)
-length(date_test)
-tail(date_test)
-tail(diamox$PERFORMED_DATE, 5)
-diamox$PERFORMED_DATE[which(is.na(date_test))]
-dhours(date_test[1] - date_test[2])
-
-date_test[1] %within% 
-  interval(date_test[1] - hours(12), date_test[1] + hours(12))
+# k_d_time <- k_d %>%
+#   mutate(k_date = ymd_hms(
+#     performed_date, 
+#     format = '%Y-%m-%d %H:%M:%S')
+#     [-(nrow(k_d) +1)])
+# 
+# 
+# head(ymd_hms(k_d$performed_date, 
+#     format = '%Y-%m-%d %H:%M:%S'))
+# 
+# colnames(k_d)
+# # k_d$post_hr_max
+# 
+# 
+# head(k_d$performed_date)
+# head(diamox$PERFORMED_DATE)
+# head(as.Date(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p'))
+# library(lubridate)
+# date_test <- mdy_hms(diamox$PERFORMED_DATE, format = '%m/%d/%Y %H.%M.%S %p')
+# length(diamox$PERFORMED_DATE)
+# length(date_test)
+# tail(date_test)
+# tail(diamox$PERFORMED_DATE, 5)
+# diamox$PERFORMED_DATE[which(is.na(date_test))]
+# dhours(date_test[1] - date_test[2])
+# 
+# date_test[1] %within% 
+#   interval(date_test[1] - hours(12), date_test[1] + hours(12))
 ```
 
 
 
 ```{r}
-k_d %>%
-  mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
-  ggplot(aes(x = on_acetazolamide, y = delta_val)) +
-  geom_boxplot(aes(fill = on_acetazolamide)) +
-  scale_fill_brewer(palette = 'Dark2')
-
-k_d %>%
-  mutate(on_spironolactone = as.factor(on_spironolactone)) %>%
-  ggplot(aes(x = on_spironolactone, y = delta_val)) +
-  geom_boxplot(aes(fill = on_spironolactone)) +
-  scale_fill_brewer(palette = 'Dark2')
-
-k_d %>%
-  mutate(on_thiazide = as.factor(on_thiazide)) %>%
-  ggplot(aes(x = on_thiazide, y = delta_val)) +
-  geom_boxplot(aes(fill = on_thiazide)) +
-  scale_fill_brewer(palette = 'Dark2')
+# k_d %>%
+#   mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
+#   ggplot(aes(x = on_acetazolamide, y = delta_val)) +
+#   geom_boxplot(aes(fill = on_acetazolamide)) +
+#   scale_fill_brewer(palette = 'Dark2')
+# 
+# k_d %>%
+#   mutate(on_spironolactone = as.factor(on_spironolactone)) %>%
+#   ggplot(aes(x = on_spironolactone, y = delta_val)) +
+#   geom_boxplot(aes(fill = on_spironolactone)) +
+#   scale_fill_brewer(palette = 'Dark2')
+# 
+# k_d %>%
+#   mutate(on_thiazide = as.factor(on_thiazide)) %>%
+#   ggplot(aes(x = on_thiazide, y = delta_val)) +
+#   geom_boxplot(aes(fill = on_thiazide)) +
+#   scale_fill_brewer(palette = 'Dark2')
 ```
 
 
