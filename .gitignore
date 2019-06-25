@@ -4,3 +4,6 @@
 .Ruserdata
 electrolytes.Rproj
 .DS_Store
+
+# data
+vitals_filtered_prbc.Rdata
