@@ -120,9 +120,8 @@ intersect(improper_mg_d$provider_name,
   length() %>%
   paste('of these providers also improperly prescribe K.') %>%
   print()
-
-
 ```
+
 
 Hospitals: improper repletions and total repletions:
 
@@ -130,7 +129,8 @@ Hospitals: improper repletions and total repletions:
 improper_k_d %>%
   dplyr::select(provider_name, hospital) %>%
   count(hospital) %>%
-  left_join(count(k_d, hospital), by = 'hospital')
+  left_join(count(k_d, hospital), by = 'hospital') %>%
+  mutate(frac = n.x/n.y)
 ```
 
 What may affect a provider's decision to prescribe an improper repletion:
