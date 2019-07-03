@@ -22,12 +22,12 @@ read_ori <- function(var){
   dat
 }
 
-add_F <- function(df, var){
+add_F <- function(df, var, visits = k_all_visits){
   # add FALSE to the remaining visits,
   # e.g. visits that are not in the table acetazolamide.csv
   # will have `on_acetazolamide = F`
   
-  tibble(visit_num = setdiff(k_all_visits, df$visit_num)) %>%
+  tibble(visit_num = setdiff(visits, df$visit_num)) %>%
     mutate((!!var) := FALSE) %>%
     rbind(df)
 }
