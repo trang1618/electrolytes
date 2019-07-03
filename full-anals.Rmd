@@ -30,6 +30,11 @@ hospital_d <- read_ori('visit_hospital')
 k_all_visits <- k_d_all$visit_num %>%
   unique()
 
+mg_d <- read_d('mg')
+mg_d_all <- read_ori('magnesium_data')
+mg_all_visits <- mg_d_all$visit_num %>%
+  unique()
+
 code_list <- read_csv('codenames.csv') %>%
   split(.$V1) %>%
   map(visits)
@@ -121,16 +126,17 @@ vitals_merged <- vitals_d %>%
   )
 # table(vitals_merged$prbc_given)
 visits_to_exclude <- vitals_merged %>%
-  filter(on_tpn |               # on TPN
-           is_rhabdo |          # rhabdomyolysis code
-           is_parathyroid |     # parathyroid disorders of any kind
-           is_sarcoid |         # sarcoid disorders of any kind
-           is_esrd |            # code for ESRD
-           is_dialysis |        # code for dialysis
-           given_dialysis |     # dialysis procedure
-           age < 18 |
-           # prbc_given == 1 |
-           gfr_mdrd < 30
+  filter(
+    # on_tpn |               # on TPN
+      # is_rhabdo |          # rhabdomyolysis code
+      is_parathyroid |     # parathyroid disorders of any kind
+      is_sarcoid |         # sarcoid disorders of any kind
+      is_esrd |            # code for ESRD
+      # is_dialysis |        # code for dialysis
+      # given_dialysis |     # dialysis procedure
+      # age < 18 |
+      # prbc_given == 1 |
+      gfr_mdrd < 30
   ) %>%
   pull(visit_num) %>%
   unique()
@@ -252,4 +258,91 @@ Phos repletions in phos_d: 16902
 ICU days in dv_d: 3128249
 Number of visits in dv_d: 332018
 
+
+Magnesium:
+
+```{r}
+gfr_info <- vitals_d %>%
+  filter((gfr_mdrd > 0) & (gfr_mdrd < 30)) %>%
+  select(visit_num) %>%
+  unique() %>%
+  mutate(gfr_mdrd_below_30 = TRUE) %>%
+  add_F('gfr_mdrd_below_30', visits = mg_all_visits)
+
+system.time(
+  mg_ext <- mg_d_all %>%
+    mutate(delta_val = post_repletion_val - pre_repletion_val,
+           performed_day_of_week = performed_date %>% ymd_hms() %>% weekdays(),
+           performed_date_only = performed_date %>% ymd_hms() %>% date() %>% as.character(),
+           performed_dose = performed_dose * ifelse(
+             (is_iv == 1) & grepl('phosphate', medication_name, ignore.case = T),
+             4.4/3.0,
+             1) # adjust for 4.4 mEq K / 3 mmol P in KH2PO4 only K dataframe!
+    ) %>%
+    group_by(visit_num, 
+             pre_repletion_val_date_offset_seconds,
+             post_repletion_val_date_offset_seconds) %>%
+    add_tally() %>%
+    mutate(is_ivpo = as.integer(skimr::n_unique(is_iv) > 1)) %>%
+    ungroup() %>%
+    list() %>% 
+    c(code_list, list(gfr_info, hospital_d)) %>%
+    reduce(left_join, by = 'visit_num')
+)
+
+# Checking columns:
+setdiff(colnames(mg_d), colnames(mg_ext))
+# setdiff(colnames(dv_d), colnames(vitals_d))
+identical(k_d$gfr_mdrd_below_30_x, k_d$gfr_mdrd_below_30_y)
+# It's a match! `group_size` is `n`.
+```
+
+
+```{r}
+vitals_merged <- vitals_d %>%
+  merge(mg_ext,
+        by.x = c('visit_num', 'day_in_unit'),
+        by.y = c('visit_num', 'performed_date_only')
+  )
+table(vitals_d$prbc_given)
+table(vitals_merged$prbc_given)
+visits_to_exclude <- vitals_merged %>%
+  filter(
+    # on_tpn |               # on TPN
+      # is_rhabdo |          # rhabdomyolysis code
+      is_parathyroid |     # parathyroid disorders of any kind
+      is_sarcoid |         # sarcoid disorders of any kind
+      is_esrd |            # code for ESRD
+      # is_dialysis |        # code for dialysis
+      # given_dialysis |     # dialysis procedure
+      # age < 18 |
+      # prbc_given == 1 |
+      gfr_mdrd < 30
+  ) %>%
+  pull(visit_num) %>%
+  unique()
+
+visit_num_filtered <- vitals_d %>%
+  # filter(
+  #   (age >= 18) & # over 18 years old
+  #     prbc_given == 0 # no PRBC
+  # ) %>%
+  # filter(is.na(gfr_mdrd) | gfr_mdrd > 30) %>%
+  pull(visit_num) %>%
+  unique() %>%
+  setdiff(visits_to_exclude)
+
+# Include patients:
+mg_filtered <- mg_ext %>%
+  filter((visit_num %in% visit_num_filtered)
+  ) 
+vitals_filtered <- vitals_merged %>%
+  filter((visit_num %in% visit_num_filtered)  
+  ) 
+# k_ext %>% filter(gfr_mdrd_below_30) %>% nrow()
+# k_filtered %>% pull(visit_num) %>% unique() %>% length()
+save(vitals_filtered, file = 'vitals_filtered_prbc_mg.Rdata')
+
+
+```
 
