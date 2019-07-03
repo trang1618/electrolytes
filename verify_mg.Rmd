@@ -1,0 +1,70 @@
+---
+title: "Preliminary analyses"
+output: html_document
+---
+## Setup:
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(vroom)
+library(lubridate)
+```
+
+## Utils
+
+Load utility functions:
+
+```{r}
+source('utils.R')
+```
+
+## Read in data:
+
+```{r}
+data_path <- '../wharton/processed_data/' 
+ori_data_path <- '../wharton/data/'
+
+load('vitals_filtered_prbc_mg.Rdata')
+# k_d <- read_d('k')
+mg_d <- read_d('mg')
+# ca_d <- read_d('ca')
+# phos_d <- read_d('phos')
+dv_d <- read_d('dv')
+mg_d_all <- read_ori('magnesium_data')
+hospital_d <- read_ori('visit_hospital')
+mg_all_visits <- mg_d_all$visit_num %>%
+  unique()
+```
+
+```{r}
+# extend k_d dataset
+mg_d <- mg_d %>%
+  mutate(t_order = order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_RN = performed_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_orderlab = post_repletion_val_order_date_offset_seconds - pre_repletion_val_date_offset_seconds,
+         t_resultlab = post_repletion_val_date_offset_seconds - post_repletion_val_order_date_offset_seconds,
+         t_repletion_orderlab_overlap = post_repletion_val_order_date_offset_seconds - performed_date_offset_seconds,
+         t_repletion_resultlab_overlap = post_repletion_val_date_offset_seconds - performed_date_offset_seconds,
+         weekend = performed_day_of_week >= 5)
+```
+
+## PRBC
+How much are magnesium level changes depending on the transfusion of PRBC?
+
+```{r}
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + prbc_given, data = vitals_filtered) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+
+# What about other variables?
+
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+     on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
+     prbc_given + on_tpn + is_rhabdo + is_dialysis + given_dialysis + age, 
+   data = vitals_filtered) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+
+```
