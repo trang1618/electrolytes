@@ -57,6 +57,18 @@ lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + o
   broom::tidy() %>%
   mutate(padj = p.adjust(p.value, method = 'BH'))
 
+# What about other variables?
+
+lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+     on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
+     prbc_given + on_tpn + is_rhabdo + is_dialysis + given_dialysis + age, 
+   data = vitals_filtered) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+
+
+
 # lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
 #   summary() %>%
 #   broom::tidy() %>%
@@ -120,6 +132,8 @@ intersect(improper_mg_d$provider_name,
   length() %>%
   paste('of these providers also improperly prescribe K.') %>%
   print()
+
+table(vitals_filtered$prbc_given)
 ```
 
 
@@ -372,6 +386,12 @@ load('../wharton/data/blood_pressure_meds.Rdata')
 
 
 ```{r}
+vitals_filtered %>%
+  # mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
+  ggplot(aes(x = prbc_given, y = delta_val, group = as.factor(prbc_given))) +
+  geom_boxplot(aes(fill = as.factor(prbc_given))) +
+  scale_fill_brewer(palette = 'Dark2')
+
 # k_d %>%
 #   mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
 #   ggplot(aes(x = on_acetazolamide, y = delta_val)) +
