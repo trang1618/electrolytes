@@ -1,0 +1,77 @@
+---
+title: "Analyze vitals"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(vroom)
+library(lubridate)
+```
+
+
+## Utils
+
+Load utility functions:
+
+```{r}
+source('utils.R')
+table_var <- function(df, var, n = 100, max_n = nrow(df)){
+  df %>% 
+    select(!!enquo(var)) %>% 
+    slice(1:max_n) %>% 
+    table() %>% 
+    sort(decreasing = T) %>%
+    head(n)
+}
+```
+
+### Vitals
+
+```{r}
+system.time(
+  vitals <- vroom('../Penn_ICU_Data/ICU PTS COHORT VITALS.csv', delim = ',')
+)
+
+# remove all-NA columns
+summary(vitals$VITAL_NOTE)
+summary(vitals$VITAL_DEVICE)
+vitals <- vitals %>%
+  select(-c(VITAL_NOTE, VITAL_DEVICE))
+
+head(vitals)
+
+vitals_first_mil <- slice(vitals, 1:10^6)
+# save(lab_values, file = '../Penn_ICU_Data/lab_values_small.Rdata')
+# load('../Penn_ICU_Data/lab_values_small.Rdata')
+table_var(vitals, VITAL_DESCRIPTION, max_n = 10^6)
+
+```
+
+### Procedures
+
+```{r}
+system.time(
+  procedures <- vroom('../Penn_ICU_Data/ICU PTS COHORT PROCEDURES.csv', delim = ',')
+)
+head(procedures)
+procedures %>%
+  slice(grep('transfus', DESCRIPTION, ignore.case = T)) %>%
+  table_var(DESCRIPTION) %>%
+  as_tibble() %>%
+  write_csv('../Penn_ICU_Data/transfus.csv')
+procedures %>%
+  table_var(DESCRIPTION)
+
+procedures_with_prbc <- procedures %>%
+  filter(DESCRIPTION == 'Packed cell transfusion') %>%
+  select(-c(CPT_MODIFIER, CODE_STANDARD_MASTER_NAME))
+head(procedures_with_prbc)
+procedures_with_prbc$PROC_DATE %>%
+  mdy_hms() %>%
+  hour() %>%
+  table() %>%
+  as_tibble() %>%
+  write_csv('../Penn_ICU_Data/proc_hours.csv')
+```
+
