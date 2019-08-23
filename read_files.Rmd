@@ -51,14 +51,31 @@ k_d <- k_d %>%
 ## PRBC
 How much are potassium level changes depending on the transfusion of PRBC?
 
+But first, how many times is PRBC given?
+
 ```{r}
-lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + prbc_given, data = vitals_filtered) %>%
-  summary() %>%
-  broom::tidy() %>%
-  mutate(padj = p.adjust(p.value, method = 'BH'))
+table(vitals_filtered$prbc_given)
+```
 
+5923 times out of 202,376 - quite imbalanced.
+
+```{r echo = F}
+# reduced model, run chunk below for more comprehensive model
+# (more variables)
+# lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + prbc_given, data = vitals_filtered) %>%
+#   summary() %>%
+#   broom::tidy() %>%
+#   mutate(padj = p.adjust(p.value, method = 'BH'))
+
+# lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
+#   summary() %>%
+#   broom::tidy() %>%
+#   mutate(padj = p.adjust(p.value, method = 'BH'))
+# 
+```
+
+```{r}
 # What about other variables?
-
 lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
      on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
      prbc_given + on_tpn + is_rhabdo + is_dialysis + given_dialysis + age, 
@@ -66,18 +83,21 @@ lm(delta_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd +
   summary() %>%
   broom::tidy() %>%
   mutate(padj = p.adjust(p.value, method = 'BH'))
-
-
-
-# lm(delta_val ~ performed_dose + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone, data = k_d) %>%
-#   summary() %>%
-#   broom::tidy() %>%
-#   mutate(padj = p.adjust(p.value, method = 'BH'))
-# 
-# lm(order_to_repletion_seconds ~ pre_repletion_val + is_cad + is_chf + is_ckd + on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone , data = vitals_filtered) %>%
-#   summary() %>%
-#   broom::tidy()
 ```
+
+Effect size = 0.132.
+
+If we ignore other variables for now, let's look at a plot:
+```{r}
+vitals_filtered %>%
+  mutate(prbc_given = as.factor(prbc_given)) %>%
+  # mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
+  ggplot(aes(x = prbc_given, y = delta_val, group = prbc_given)) +
+  geom_boxplot(aes(fill = as.factor(prbc_given)), alpha = 0.8) + 
+  theme_bw() + 
+  theme(legend.position = 'None')
+```
+
 
 ## Focus on pre-repletion value > 4.5
 
@@ -133,7 +153,6 @@ intersect(improper_mg_d$provider_name,
   paste('of these providers also improperly prescribe K.') %>%
   print()
 
-table(vitals_filtered$prbc_given)
 ```
 
 
@@ -270,8 +289,6 @@ cor(k_d$performed_dose, k_d$delta_val)
 ```
 
 ```{r}
-
-
 ggplot(aes(x = t_order/60, fill = weekend), data = k_d) +
   geom_histogram(bins = 300, stat = 'density',
                  position = 'identity', alpha = 0.8) +
@@ -386,11 +403,7 @@ load('../wharton/data/blood_pressure_meds.Rdata')
 
 
 ```{r}
-vitals_filtered %>%
-  # mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
-  ggplot(aes(x = prbc_given, y = delta_val, group = as.factor(prbc_given))) +
-  geom_boxplot(aes(fill = as.factor(prbc_given))) +
-  scale_fill_brewer(palette = 'Dark2')
+
 
 # k_d %>%
 #   mutate(on_acetazolamide = as.factor(on_acetazolamide)) %>%
