@@ -1,0 +1,87 @@
+---
+title: "Analyze lab values"
+output: html_document
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(vroom)
+library(lubridate)
+```
+
+
+```{r}
+system.time(
+  lab_values <- vroom('../Penn_ICU_Data/ICU PTS COHORT LABS.csv', delim = ',')
+)
+lab_values_first_mil <- slice(lab_values, 1:10^6)
+# save(lab_values, file = '../Penn_ICU_Data/lab_values_small.Rdata')
+# load('../Penn_ICU_Data/lab_values_small.Rdata')'
+```
+
+
+
+```{r}
+table_10_e6 <- function(var, n = 50){
+  lab_values %>% 
+    select(!!enquo(var)) %>% 
+    slice(1:10^6) %>% 
+    table() %>% 
+    sort(decreasing = T) %>%
+    head(n)
+}
+table_10_e6(ORDER_NAME)
+table_10_e6(RESULT_RESOURCE)
+table_10_e6(RESULT_ITEM_CODE)
+str(head(lab_values))
+```
+
+
+             CBC w/ Auto Diff         Basic Metabolic Panel              CBC w/ Platelets       _Automated Differential 
+                       142918                        136250                        107456                         94870 
+         ABL90 Arterial Panel                   Manual Diff   Glucose (Plasma Rals Group)            ABL90 Venous Panel 
+                        85813                         56254                         35794                         21048 
+               ABORh Type HUP     Blood Gas Arterial Vented           Urinalysis Dipstick            Liver Injury Panel 
+                        20306                         18407                         17221                         16620 
+                           PT                Newborn Screen Comprehensive Metabolic Panel               Magnesium Level 
+                        14078                         11604                         11296                         10067 
+    Panel 5 (Na K CO2 Cre Un)                       PT/APTT                           PTT        Urinalysis Microscopic 
+                         9004                          8394                          7822                          7613 
+                         ABSC              Phosphorus Level            Drug Screen, Urine                ABORh Type PAH 
+                         7578                          6921                          6015                          6003 
+              _ABG/Lytes Rals                       Ab Scrn Blood Gas Arterial Non-Vented                    ABORh PPMC 
+                         5202                          4767                          4702                          4301 
+                       AT-HUP               Patient History              Blood Gas Venous                RBC Morphology 
+                         4032                          3901                          3646                          3513 
+                       Chem11        Liver Evaluation Panel          Lactic Acid (CC Lab)     _ABG/Lytes Rals Capillary 
+                         3284                          3262                          2951                          2858 
+       Hepatic Function Panel                        UA PAH               Na & K (CC Lab)     Chem16 Component Of Nstpn 
+                         2743                          2689                          2601                          2586 
+                    _ABG Rals          Chem 8 Point of Care         WBC Corrected (Group)                           EXM 
+                         2401                          1876                          1724                          1668 
+              GEM4000 ANLCOOX       Hgb/O2 SATURATION (SCM)                Blood Gas Cord       GEM Premier Arterial BG 
+                         1666                          1613                          1400                          1377 
+       _ABG/Lytes Rals Venous              Cooximetry Panel 
+                         1339                          1335 
+                              
+as                              
+```{r}
+grep('VBG', lab_values$ORDER_NAME[1:10^7], ignore.case = T)
+system.time(grep('prbc', lab_values$ORDER_NAME, ignore.case = T))
+
+```
+No 'VBG' is found in ORDER_NAME.
+
+RBC Morphology?
+                              
+```{r}
+system.time(
+  abgs <- lab_values[grep('ABG', lab_values$ORDER_NAME, ignore.case = T),]
+)
+head(abgs)
+head(abgs$RESULT_DATE)
+```
+
+
+
