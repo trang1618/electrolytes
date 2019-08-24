@@ -38,6 +38,19 @@ str(head(lab_values))
 ```
 
 
+```{r}
+keep_orders <- c('CBC w/ Auto Diff', 'Basic Metabolic Panel', 'CBC w/ Platelets', 
+                 '_Automated Differential', 'Liver Injury Panel', 'PT', 'Magnesium Level', 
+                 'Panel 5 (Na K CO2 Cre Un)', 'PT/APTT', 'PTT', 'ABSC', 'Phosphorus Level',
+                 'Drug Screen, Urine', 'ABORh Type PAH', 'Chem11', 'Liver Evaluation Panel',
+                 'Lactic Acid (CC Lab)', 'Hepatic Function Panel', 'UA PAH',
+                 'Na & K (CC Lab)', 'Chem16 Component Of Nstpn')
+
+lab_values_anal <- lab_values %>%
+  filter(ORDER_NAME %in% keep_orders)
+```
+
+
              CBC w/ Auto Diff         Basic Metabolic Panel              CBC w/ Platelets       _Automated Differential 
                        142918                        136250                        107456                         94870 
          ABL90 Arterial Panel                   Manual Diff   Glucose (Plasma Rals Group)            ABL90 Venous Panel 
@@ -65,7 +78,7 @@ str(head(lab_values))
        _ABG/Lytes Rals Venous              Cooximetry Panel 
                          1339                          1335 
                               
-as                              
+
 ```{r}
 grep('VBG', lab_values$ORDER_NAME[1:10^7], ignore.case = T)
 system.time(grep('prbc', lab_values$ORDER_NAME, ignore.case = T))
