@@ -81,9 +81,7 @@ lab_values_anal <- lab_values %>%
 
 ```{r}
 grep('VBG', lab_values$ORDER_NAME[1:10^7], ignore.case = T)
-system.time(grep('prbc', lab_values$ORDER_NAME, ignore.case = T))
 system.time(ph_idx <- grep('pH', lab_values$ORDER_NAME))
-
 ```
 No 'VBG' is found in ORDER_NAME.
 
