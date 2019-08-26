@@ -99,6 +99,34 @@ vitals_filtered %>%
 ```
 
 
+
+```{r}
+ggplot(vitals_filtered,
+       aes(x = repletion_perform_to_post_val_seconds,
+           y = post_repletion_val)) + 
+  geom_point(alpha = 0.5)
+
+vitals_filtered <- vitals_filtered %>%
+  # dplyr::select(contains('offset'))  
+  mutate(repletion_perform_to_post_val_seconds = 
+           post_repletion_val_date_offset_seconds - 
+           performed_date_offset_seconds)
+
+head(vitals_offset)
+colnames(vitals_filtered)
+hist(vitals_filtered$post_repletion_val_order_date_offset_seconds)
+lm(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+     on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
+     prbc_given + on_tpn + is_rhabdo + is_dialysis + given_dialysis + age +
+     repletion_perform_to_post_val_seconds, 
+   data = vitals_filtered) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+```
+
+
+
 ## Focus on pre-repletion value > 4.5
 
 Descriptive stats:
