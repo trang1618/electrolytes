@@ -75,3 +75,14 @@ procedures_with_prbc$PROC_DATE %>%
   write_csv('../Penn_ICU_Data/proc_hours.csv')
 ```
 
+
+```{r}
+all_times <- procedures_with_prbc$PROC_DATE %>%
+  mdy_hms()
+all_hours <- hour(all_times) + minute(all_times)/60 + second(all_times)/3600
+table(cut(all_hours, seq(0, 24, 1), include.lowest = T)) %>%
+  as_tibble(validate=F) %>%
+  write_csv('../Penn_ICU_Data/proc_hours_from_midnight.csv')
+
+```
+
