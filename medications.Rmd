@@ -1,0 +1,45 @@
+---
+title: "Medication"
+output: html_document
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(vroom)
+library(lubridate)
+```
+
+```{r}
+source('utils.R')
+table_var <- function(df, var, n = 100, max_n = nrow(df)){
+  df %>% 
+    select(!!enquo(var)) %>% 
+    slice(1:max_n) %>% 
+    table() %>% 
+    sort(decreasing = T) %>%
+    head(n)
+}
+```
+
+```{r}
+system.time(
+  meds <- vroom('../Penn_ICU_Data/ICU PTS COHORT MEDS.csv', delim = ',',
+                n_max = 50000000)
+)
+# save(lab_values, file = '../Penn_ICU_Data/lab_values_small.Rdata')
+# load('../Penn_ICU_Data/lab_values_small.Rdata')'
+```
+
+```{r}
+head(meds)
+table_var(meds, ORDER_NAME)
+
+'insulin'
+
+'dextrose'
+meds %>%
+  slice(grep('insulin|dextrose', ORDER_NAME, ignore.case = T))
+
+```
+
