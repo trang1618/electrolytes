@@ -34,8 +34,8 @@ system.time(
 )
 
 # remove all-NA columns
-summary(vitals$VITAL_NOTE)
-summary(vitals$VITAL_DEVICE)
+# summary(vitals$VITAL_NOTE)
+# summary(vitals$VITAL_DEVICE)
 vitals <- vitals %>%
   select(-c(VITAL_NOTE, VITAL_DEVICE))
 
@@ -65,7 +65,11 @@ procedures %>%
 
 procedures_with_prbc <- procedures %>%
   filter(DESCRIPTION == 'Packed cell transfusion') %>%
-  select(-c(CPT_MODIFIER, CODE_STANDARD_MASTER_NAME))
+  select(-c(CPT_MODIFIER, CODE_STANDARD_MASTER_NAME)) %>%
+  mutate(proc_time = mdy_hms(PROC_DATE),
+         hours = hour(proc_time) + 
+           minute(proc_time)/60 + 
+           second(proc_time)/3600)
 head(procedures_with_prbc)
 procedures_with_prbc$PROC_DATE %>%
   mdy_hms() %>%
@@ -73,16 +77,77 @@ procedures_with_prbc$PROC_DATE %>%
   table() %>%
   as_tibble() %>%
   write_csv('../Penn_ICU_Data/proc_hours.csv')
-```
 
-
-```{r}
-all_times <- procedures_with_prbc$PROC_DATE %>%
-  mdy_hms()
-all_hours <- hour(all_times) + minute(all_times)/60 + second(all_times)/3600
-table(cut(all_hours, seq(0, 24, 1), include.lowest = T)) %>%
-  as_tibble(validate=F) %>%
+table(cut(procedures_with_prbc$hours, seq(0, 24, 1), include.lowest = T)) %>%
+  as_tibble(validate = F) %>%
   write_csv('../Penn_ICU_Data/proc_hours_from_midnight.csv')
 
 ```
 
+
+```{r}
+procedures_not_midnight <- procedures_with_prbc %>%
+  filter(hours > 0)
+
+load('vitals_filtered_prbc.Rdata')
+
+sum(duplicated(procedures_not_midnight[, 2]))
+
+
+vitals_filtered <- vitals_filtered %>%
+  mutate(enc_date = ymd_hms(performed_date) - 
+           dseconds(performed_date_offset_seconds),
+         post_rep_date = enc_date + 
+           dseconds(post_repletion_val_date_offset_seconds))
+# vitals_filtered$pre_repletion_val_date_offset_seconds
+head(vitals_filtered$enc_date)
+colnames(vitals_filtered)
+vitals_prbc <- vitals_filtered %>%
+  filter(prbc_given == 1)
+
+sum(duplicated(vitals_prbc$visit_num))
+
+prbc_vitals <- tibble()
+for (i in seq.int(nrow(procedures_not_midnight))){
+  prbc_i <- procedures_not_midnight[i, ] %>%
+    mutate(proc_time = mdy_hms(PROC_DATE),
+           VISIT_NUM = as.character(VISIT_NUM)) %>%
+    rename(visit_num = 'VISIT_NUM')
+  
+  prbc_vitals <- vitals_prbc %>%
+    filter(visit_num == prbc_i$visit_num) %>%
+    left_join(prbc_i, by = 'visit_num') %>%
+    rbind(prbc_vitals, .)
+}
+prbc_vitals <- prbc_vitals %>%
+  mutate(prbc_to_post_repletion_result_hr = 
+           interval(proc_time, post_rep_date)/hours(1)) %>%
+  filter((prbc_to_post_repletion_result_hr > 0) & (prbc_to_post_repletion_result_hr < 24))
+
+sum(duplicated(prbc_vitals$visit_num))
+# 7 duplicated visit_num's
+
+lm(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+     on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
+     on_tpn + is_rhabdo + is_dialysis + given_dialysis + age +
+     prbc_to_post_repletion_result_hr, 
+   data = prbc_vitals) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+
+
+ggplot(prbc_vitals, aes(x = prbc_to_post_repletion_result_hr,
+                        y = post_repletion_val)) + 
+  geom_point() +
+  labs(x = 'Hours after PRBC',
+       y = 'Potassium value') + 
+  geom_smooth(method = 'lm')
+
+summary(prbc_vitals$prbc_to_post_repletion_result_hr)
+prbc_vitals %>%
+  select(proc_time, post_rep_date, prbc_to_post_repletion_result_hr)
+```
+
+
+Among 1018 non-midnight PRBC transfusions, only 60 has a corresponding Potassium level read after the transfusion (some are after a few days which we should ignore). Within 24 hours, there is little correlation between the number of hours after PRBC initiation (I assume this is what PROC_TIME indicates) and Potassium level.
