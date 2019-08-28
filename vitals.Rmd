@@ -93,17 +93,27 @@ load('vitals_filtered_prbc.Rdata')
 
 sum(duplicated(procedures_not_midnight[, 2]))
 
-
 vitals_filtered <- vitals_filtered %>%
   mutate(enc_date = ymd_hms(performed_date) - 
            dseconds(performed_date_offset_seconds),
          post_rep_date = enc_date + 
-           dseconds(post_repletion_val_date_offset_seconds))
-# vitals_filtered$pre_repletion_val_date_offset_seconds
-head(vitals_filtered$enc_date)
-colnames(vitals_filtered)
-vitals_prbc <- vitals_filtered %>%
-  filter(prbc_given == 1)
+           dseconds(post_repletion_val_date_offset_seconds),
+         dosage = paste(performed_dose, performed_unit_of_measure),
+         medication_name = gsub('potassium chloride 20 mEq in 100 mL inj.', 
+                                'potassium chloride 20 mEq/100 mL IVPB -', 
+                                medication_name),
+         medication_name = gsub('potassium chloride 20 mEq in 100 mL inj.', 
+                                'potassium chloride 20 mEq/100 mL IVPB -', 
+                                medication_name),
+         medication_name = gsub('potassium chloride 20 mEq/50 mL IVPB_ -',
+                                'potassium chloride 20 mEq/50 mL IVPB -', 
+                                medication_name))
+
+vitals_filtered %>%
+  group_by(medication_name) %>%
+  count(dosage) %>%
+  filter(n > 50) %>%
+  write_csv('../Penn_ICU_Data/potassium_dosage.csv')
 
 sum(duplicated(vitals_prbc$visit_num))
 
@@ -136,12 +146,10 @@ lm(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + i
   broom::tidy() %>%
   mutate(padj = p.adjust(p.value, method = 'BH'))
 
-
 ggplot(prbc_vitals, aes(x = prbc_to_post_repletion_result_hr,
                         y = post_repletion_val)) + 
   geom_point() +
-  labs(x = 'Hours after PRBC',
-       y = 'Potassium value') + 
+  labs(x = 'Hours after PRBC', y = 'Potassium value') + 
   geom_smooth(method = 'lm')
 
 summary(prbc_vitals$prbc_to_post_repletion_result_hr)
@@ -151,3 +159,16 @@ prbc_vitals %>%
 
 
 Among 1018 non-midnight PRBC transfusions, only 60 has a corresponding Potassium level read after the transfusion (some are after a few days which we should ignore). Within 24 hours, there is little correlation between the number of hours after PRBC initiation (I assume this is what PROC_TIME indicates) and Potassium level.
+
+
+```{r}
+lm(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+     on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone + 
+     on_tpn + is_rhabdo + is_dialysis + given_dialysis + age +
+     , 
+   data = prbc_vitals) %>%
+  summary() %>%
+  broom::tidy() %>%
+  mutate(padj = p.adjust(p.value, method = 'BH'))
+```
+
