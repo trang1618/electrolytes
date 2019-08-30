@@ -25,7 +25,7 @@ lab_values_first_mil <- slice(lab_values, 1:10^6)
 ```{r}
 table_10_e6 <- function(var, n = 50){
   lab_values %>% 
-    select(!!enquo(var)) %>% 
+    select({{var}}) %>% 
     slice(1:10^6) %>% 
     table() %>% 
     sort(decreasing = T) %>%
