@@ -112,7 +112,6 @@ vitals_filtered <- vitals_filtered %>%
            post_repletion_val_date_offset_seconds - 
            performed_date_offset_seconds)
 
-head(vitals_offset)
 colnames(vitals_filtered)
 hist(vitals_filtered$post_repletion_val_order_date_offset_seconds)
 lm(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
@@ -272,11 +271,12 @@ k_d %>%
 ```
 
 
+What about ineffective repletions? (electrolyte levels go down after repletion)
 ```{r}
 ineffective_proportion <- function(lyte){
   sum(lyte$delta_val < 0)/length(lyte$delta_val) # 20% for K
 }
-
+ineffective_proportion(k_d)
 delta_repletion <- k_d$delta_val
 sum(delta_repletion < 0)/length(delta_repletion) # 23%
 ineffective_proportion(mg_d) # 20%
@@ -287,6 +287,46 @@ cor.test(delta_repletion, k_d$on_acetazolamide)
 # t.test(alternative = 'greater')
 
 ```
+
+```{r}
+# pt_id_visits <- lab_values_anal %>%
+#   select(PK_PATIENT_ID, VISIT_NUM) 
+# pt_id_visits <- pt_id_visits[!duplicated(pt_id_visits), ]
+# pt_id_visits <- pt_id_visits %>%
+#   rename(visit_num = 'VISIT_NUM')
+# save(pt_id_visits, file = '../Penn_ICU_Data/pt_id_visits.Rdata')
+load('../Penn_ICU_Data/pt_id_visits.Rdata')
+```
+
+
+```{r}
+str(vitals_filtered$visit_num)
+ineffective_k <- vitals_filtered %>%
+  mutate(visit_num = as.numeric(visit_num)) %>%
+  filter(delta_val < 0) %>%
+  left_join(pt_id_visits, by = 'visit_num')
+pt_nof1 <- ineffective_k %>%
+  pull(PK_PATIENT_ID) %>%
+  unique() 
+nof1_df <- vitals_filtered %>%
+  mutate(visit_num = as.numeric(visit_num)) %>%
+  left_join(pt_id_visits, by = 'visit_num') %>%
+  filter(PK_PATIENT_ID %in% pt_nof1)
+
+k_change <- nlme::lme(
+  post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+    on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone +
+    prbc_given + on_tpn + is_rhabdo + given_dialysis + age +
+    repletion_perform_to_post_val_seconds,
+  random = ~ 1 | PK_PATIENT_ID, data = nof1_df)
+
+summary(k_change)
+hist(nof1_df$repletion_perform_to_post_val_seconds)
+```
+
+
+
+
 
 last 6 hours dialysis, +/- 12 hours
 excluded dialysis
