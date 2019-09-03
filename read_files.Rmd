@@ -322,7 +322,39 @@ k_change <- nlme::lme(
 
 summary(k_change)
 hist(nof1_df$repletion_perform_to_post_val_seconds)
+
+k_change_0 <- lmerTest::lmer(post_repletion_val ~ performed_dose + pre_repletion_val + is_cad + is_chf + is_ckd + 
+    on_loop_diuretic + on_acetazolamide + on_thiazide + on_spironolactone +
+    prbc_given + on_tpn + is_rhabdo + given_dialysis + age +
+    repletion_perform_to_post_val_seconds + (1 | PK_PATIENT_ID), data = nof1_df) 
+# updated after revision round 2, exclude gender and BMI
+            
+summary(k_change_0)
+# table(nof1_df$performed_dose)
+# lmerTest::difflsmeans(k_change_0, ddf = "Kenward-Roger")
+# confint(k_change_0, method = "profile")
+
 ```
+
+                                              2.5 %        97.5 %
+.sig01                                 1.156890e-01  1.217181e-01
+.sigma                                 3.765493e-01  3.793937e-01
+(Intercept)                            2.325904e+00  2.375948e+00
+performed_dose                         6.952710e-05  1.698553e-04
+pre_repletion_val                      3.936410e-01  4.054726e-01
+is_cadTRUE                             1.611753e-02  3.532181e-02
+is_chfTRUE                             6.648553e-02  7.918038e-02
+is_ckdTRUE                             1.399895e-02  3.636961e-02
+on_loop_diureticTRUE                   4.854529e-02  5.968110e-02
+on_acetazolamideTRUE                  -2.410357e-02 -6.707960e-04
+on_thiazideTRUE                       -3.543002e-02 -2.151803e-02
+on_spironolactoneTRUE                 -1.272805e-02  7.159541e-03
+prbc_given                             1.140198e-01  1.375041e-01
+on_tpnTRUE                             1.082353e-02  2.386525e-02
+is_rhabdoTRUE                         -5.678207e-02  2.505107e-04
+given_dialysisTRUE                     1.025626e-02  6.323669e-02
+age                                    2.715563e-04  6.255492e-04
+repletion_perform_to_post_val_seconds -1.418624e-06 -1.190515e-06
 
 
 
