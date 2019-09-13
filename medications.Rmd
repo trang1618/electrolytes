@@ -33,13 +33,23 @@ system.time(
 
 ```{r}
 head(meds)
-table_var(meds, ORDER_NAME)
-
-'insulin'
-
-'dextrose'
-meds %>%
+# table_var(meds, ORDER_NAME)
+treat_hyperkalimia <- meds %>%
   slice(grep('insulin|dextrose', ORDER_NAME, ignore.case = T))
+head(treat_hyperkalimia)
+table_var(treat_hyperkalimia, ORDER_NAME, n = 200) %>%
+  as_tibble() %>%
+  write_csv('../Penn_ICU_Data/dextrose_insulin.csv')
+```
 
+
+```{r}
+small_treat <- treat_hyperkalimia[1:100,] 
+small_treat <- treat_hyperkalimia[1:100,] %>%
+  group_by(VISIT_NUM) %>%
+  slice(grep('insulin', ORDER_NAME, ignore.case = T)) %>%
+  
+  arrange(ORDER_DATE) %>%
+  summarise(min_dif = diff(ORDER_DATE))
 ```
 
